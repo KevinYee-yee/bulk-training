@@ -2333,10 +2333,12 @@ async function saveExerciseRename(){
 // 處方一律固定值：rep=建議次數（次數範圍的上限，達標才加重）、rpe=建議RPE（範圍上限，超過就維持重量不加）
 // w 刻意留空：起始重量都只是概算，第一次訓練現場測，之後交給 computeCoachSuggestion() 從實際紀錄自動算
 const DEFAULT_COACH_CYCLE=[
-  {title:'腿部主導', exercises:[
+  {title:'腿部主導（含手臂加量）', exercises:[
     {name:'腿推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約160kg概算，現場校正'},
     {name:'保加利亞分腿蹲', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'單邊次數，自由重量例外項，啞鈴現場測'},
-    {name:'羅馬尼亞硬舉', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'後鏈/膕繩肌，取代原本的腿彎舉機，自由重量例外項'}
+    {name:'羅馬尼亞硬舉', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'後鏈/膕繩肌，取代原本的腿彎舉機，自由重量例外項'},
+    {name:'槌式彎舉', cat:'輔助', sets:'3', rep:12, rpe:8, inc:2.5, unit:'kg', note:'二頭加量'},
+    {name:'過頭三頭延伸', cat:'輔助', sets:'3', rep:12, rpe:8, inc:2.5, unit:'kg', note:'三頭加量'}
   ]},
   {title:'推系（胸/肩/三頭）', exercises:[
     {name:'坐姿胸推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:2.5, unit:'kg', note:'主項，起始約95-100kg概算，現場校正'},
