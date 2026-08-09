@@ -565,6 +565,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   </div>
   <div id="sync-bar"></div>
   <div id="cloud-banner"></div>
+  <div id="phase-card" style="margin:0 16px 14px"></div>
   <div id="coach-card" style="margin:0 16px 14px"></div>
   <!-- Merged weekly summary: streak/stats + week dots + rings -->
   <div class="card ov-week-card" style="margin-left:16px;margin-right:16px">
@@ -693,6 +694,27 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   <div class="ex-demo-sheet" id="ex-demo-sheet">
     <div id="ex-demo-content"></div>
     <button class="demo-close" onclick="closeExDemo()">關閉</button>
+  </div>
+</div>
+
+<!-- 訓練期狀態 bottom sheet -->
+<div class="create-menu-overlay" id="phase-editor-overlay" hidden onclick="if(event.target===this)closePhaseEditor()">
+  <div class="create-menu-sheet">
+    <div style="font-size:18px;font-weight:800;color:#f0ece4;margin-bottom:14px">訓練期狀態</div>
+    <label class="form-label">第幾循環</label>
+    <input class="form-input" type="number" id="phase-cycle-input" min="1" style="margin-bottom:12px">
+    <label class="form-label">期別</label>
+    <select class="form-input" id="phase-type-input" style="margin-bottom:12px">
+      <option value="bulk">增肌期</option>
+      <option value="strength">肌力期</option>
+    </select>
+    <label class="form-label">本期開始日期</label>
+    <input class="form-input" type="date" id="phase-start-input" style="margin-bottom:12px">
+    <label class="form-label">預計週數</label>
+    <input class="form-input" type="number" id="phase-weeks-input" min="1" style="margin-bottom:16px">
+    <button class="btn btn-primary btn-full" onclick="savePhaseEdits()">儲存</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="switchToNextPhase()">🔁 切換到下一期（從今天開始）</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="closePhaseEditor()">取消</button>
   </div>
 </div>
 
@@ -1167,11 +1189,12 @@ async function flushPending(){
     else if(p.type==='exerciseDb')ok=await apiPost('saveExerciseDb',{db:p.payload.db});
     else if(p.type==='exerciseInfo')ok=await apiPost('saveExerciseInfo',{info:p.payload.info});
     else if(p.type==='exerciseRename')ok=await apiPost('renameExercise',{oldName:p.payload.oldName,newName:p.payload.newName});
+    else if(p.type==='phaseState')ok=await apiPost('savePhaseState',{state:p.payload.state});
     else if(p.type==='workout')ok=p.payload.op==='delete'?await apiPost('delete',{id:p.key}):await apiPost('add',{workout:p.payload.workout});
     if(ok)clearPending(p.type,p.key);
   }
   if(!getPending().length){
-    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS()]);
+    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS()]);
     WK=getCache();
     renderOverview();renderFreqProgress();renderCardioProgress();
     if(!document.getElementById('tab-body').hidden)renderBodyTab();
@@ -1886,6 +1909,7 @@ function renderOverview(){
   document.getElementById('recent-list').innerHTML=sorted.slice(0,2).map(s=>sessionCard(s,false)).join('')||'<div class="empty" style="padding:20px 0;text-align:center;color:rgba(240,236,228,.25);font-size:14px">還沒有訓練紀錄<br><span style="font-size:12px;opacity:.6">點上方按鈕開始第一次訓練</span></div>';
   renderCityCard();
   renderOverviewWeight();
+  renderPhaseCard();
   renderCoachCard();
 }
 function renderOverviewWeight(){
@@ -2828,6 +2852,93 @@ async function syncCoachStateFromGAS(){
     const json=await res.json();
     if(json.ok&&json.state)saveCoachState(Object.assign(getCoachState(),json.state));
   }catch(e){}
+}
+
+// ── 訓練期狀態（增肌期/肌力期、第幾循環、第幾週）：自己標記現在在哪個週期，不是自動判斷 ──
+const PHASE_STATE_KEY='bulk_phase_state_v1';
+const PHASE_LABELS={bulk:{name:'增肌期',color:'#f59e0b'},strength:{name:'肌力期',color:'#60a5fa'}};
+function getPhaseState(){
+  const def={cycleNum:1,phase:'bulk',startDate:todayStr(),plannedWeeks:10};
+  return Object.assign(def,JSON.parse(localStorage.getItem(PHASE_STATE_KEY)||'{}'));
+}
+function savePhaseState(s){localStorage.setItem(PHASE_STATE_KEY,JSON.stringify(s));}
+async function apiSavePhaseState(state){
+  const ok=await apiPost('savePhaseState',{state});
+  if(ok)clearPending('phaseState','state');
+  else queuePending('phaseState','state',{state});
+}
+async function syncPhaseStateFromGAS(){
+  const url=getGASUrl();if(!url)return;
+  if(pendingKeys('phaseState').size)return; // 有未同步的本地變更，先不要被舊的雲端值蓋掉
+  try{
+    const res=await fetch(url+'?action=getPhaseState');
+    const json=await res.json();
+    if(json.ok&&json.state)savePhaseState(Object.assign(getPhaseState(),json.state));
+  }catch(e){}
+}
+function phaseWeekInfo(){
+  const s=getPhaseState();
+  const start=new Date(s.startDate+'T00:00:00');
+  const today=new Date(todayStr()+'T00:00:00');
+  const daysElapsed=Math.max(0,Math.floor((today-start)/86400000));
+  const weekNum=Math.floor(daysElapsed/7)+1;
+  const weeksLeft=s.plannedWeeks-weekNum+1;
+  const pct=Math.max(0,Math.min(100,Math.round(((weekNum-1)/s.plannedWeeks)*100)));
+  return Object.assign({},s,{weekNum,weeksLeft,pct});
+}
+function renderPhaseCard(){
+  const el=document.getElementById('phase-card');if(!el)return;
+  const info=phaseWeekInfo();
+  const lbl=PHASE_LABELS[info.phase]||PHASE_LABELS.bulk;
+  let statusTxt='';
+  if(info.weekNum>info.plannedWeeks)statusTxt='　⚠️ 已超過預計週數，考慮重測基準轉下一期';
+  else if(info.weeksLeft<=1)statusTxt='　快到轉換點了，準備重測基準';
+  el.innerHTML=`<div class="card" style="padding:14px 16px" onclick="openPhaseEditor()" oncontextmenu="openPhaseEditor();return false" ontouchstart="">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="background:${lbl.color};color:#080808;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px">第${info.cycleNum}循環</span>
+        <span style="font-size:15px;font-weight:800;color:#f0ece4">${lbl.name}</span>
+      </div>
+      <span style="font-size:12px;color:rgba(240,236,228,.4)">✏️ 調整</span>
+    </div>
+    <div style="font-size:13px;color:rgba(240,236,228,.6);margin-top:6px">第 ${info.weekNum} 週／預計 ${info.plannedWeeks} 週${statusTxt}</div>
+    <div style="height:6px;border-radius:4px;background:#2a2a2a;margin-top:8px;overflow:hidden">
+      <div style="height:100%;width:${info.pct}%;background:${lbl.color};border-radius:4px"></div>
+    </div>
+  </div>`;
+}
+function openPhaseEditor(){
+  const s=getPhaseState();
+  document.getElementById('phase-cycle-input').value=s.cycleNum;
+  document.getElementById('phase-type-input').value=s.phase;
+  document.getElementById('phase-start-input').value=s.startDate;
+  document.getElementById('phase-weeks-input').value=s.plannedWeeks;
+  showSheet('phase-editor-overlay');
+}
+function closePhaseEditor(){hideSheet('phase-editor-overlay');}
+function savePhaseEdits(){
+  const state={
+    cycleNum:parseInt(document.getElementById('phase-cycle-input').value)||1,
+    phase:document.getElementById('phase-type-input').value,
+    startDate:document.getElementById('phase-start-input').value||todayStr(),
+    plannedWeeks:parseInt(document.getElementById('phase-weeks-input').value)||10
+  };
+  savePhaseState(state);
+  apiSavePhaseState(state);
+  closePhaseEditor();
+  renderPhaseCard();
+  showToast('✅ 已更新訓練期狀態');
+}
+function switchToNextPhase(){
+  const s=getPhaseState();
+  const next=s.phase==='bulk'
+    ?{cycleNum:s.cycleNum,phase:'strength',startDate:todayStr(),plannedWeeks:s.plannedWeeks}
+    :{cycleNum:s.cycleNum+1,phase:'bulk',startDate:todayStr(),plannedWeeks:s.plannedWeeks};
+  savePhaseState(next);
+  apiSavePhaseState(next);
+  closePhaseEditor();
+  renderPhaseCard();
+  showToast(`✅ 已切換到 第${next.cycleNum}循環・${PHASE_LABELS[next.phase].name}`);
 }
 
 // ── 菜單Tab渲染（教練循環三天總覽，唯讀）──
@@ -4078,6 +4189,7 @@ if(getGASUrl()){
     syncCoachCycleFromGAS().then(()=>{renderCoachCard();if(!document.getElementById('tab-menu').hidden)renderMenuTab();});
     syncExerciseDBFromGAS();
     syncExerciseInfoFromGAS();
+    syncPhaseStateFromGAS().then(renderPhaseCard);
   });
 }
 // 連線恢復時自動把離線期間累積的變更補同步回 Google Sheet
