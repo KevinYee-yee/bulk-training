@@ -913,7 +913,7 @@ function hideSheet(id){
 // 只當「從沒編輯過時」的預設值；實際動作庫是可編輯資料，見 getExerciseDB()
 const DEFAULT_EXERCISE_DB={
   '腿部':['腿推機','槓鈴背蹲舉','槓鈴前蹲舉','保加利亞分腿蹲','坐姿腿彎舉機','坐姿小腿提踵機','羅馬尼亞硬舉','勾腿機器','分腿蹲'],
-  '背部':['坐姿划船機','滑輪下拉機','直臂下壓機','槓鈴划船','引體向上','單邊啞鈴划船'],
+  '背部':['坐姿划船機','坐姿窄握划船機','滑輪下拉機','直臂下壓機','槓鈴划船','引體向上','單邊啞鈴划船'],
   '胸部':['坐姿胸推機','上斜胸推機','槓鈴臥推','上斜啞鈴臥推','雙槓撐體','蝴蝶機夾胸'],
   '肩膀':['肩推機','槓鈴站姿肩推','啞鈴肩推','側平舉','反向蝴蝶機','臉拉'],
   '手臂':['槌式彎舉','過頭三頭延伸','二頭彎舉機','三頭下壓','槓鈴二頭彎舉','啞鈴二頭彎舉','過頭三頭伸展'],
@@ -2207,6 +2207,7 @@ const DEFAULT_EXERCISE_INFO={
   '上斜胸推機':{muscle:'上胸・三頭',cues:['調整座椅使握把對齊上胸位置','推出時感受上胸發力，不要聳肩','緩慢回程，全程控制'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
   '肩推機':{muscle:'肩膀・三頭',cues:['調整座椅至手把約肩膀高度','推出時感受三角肌前中束發力','不要鎖死手肘，保留微彎'],muscles:{primary:['shoulders'],secondary:['triceps']}},
   '坐姿划船機':{muscle:'中背・後三角',cues:['抓高位、略寬握把，挺胸坐直，腳踩踏板','手肘外展，往鎖骨/上胸方向拉（不是拉向下腹）','緩慢放回，感受中背/菱形肌伸展，不聳肩'],muscles:{primary:['midBack'],secondary:['biceps','shoulders']}},
+  '坐姿窄握划船機':{muscle:'中背・菱形肌',cues:['V字窄握把，手肘貼身體兩側往下腹拉','跟寬握版本角度不同，更集中中背/菱形肌','夾緊肩胛停頓1秒，緩慢放回感受伸展'],muscles:{primary:['midBack'],secondary:['biceps']}},
   '滑輪下拉機':{muscle:'背闊・二頭',cues:['雙手寬握距，挺胸微後仰','手肘往下往後拉，感受背闊','放回時手臂充分伸展，別讓肩膀聳起'],muscles:{primary:['lats'],secondary:['biceps']}},
   '直臂下壓機':{muscle:'背闊肌',cues:['手臂維持微彎固定角度，不要用手肘彎曲代償','用背闊發力把握把往下壓','緩慢回程，感受背闊完全伸展'],muscles:{primary:['lats'],secondary:[]}},
   '二頭彎舉機':{muscle:'二頭肌',cues:['上臂貼緊靠墊，固定手肘位置','完整動作範圍，充分彎曲與伸展','不要讓肩膀前傾代償'],muscles:{primary:['biceps'],secondary:[]}},
@@ -2774,20 +2775,21 @@ const DEFAULT_COACH_CYCLE=[
     {name:'腿推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約160kg概算，現場校正'},
     {name:'保加利亞分腿蹲', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'單邊次數，自由重量例外項，啞鈴現場測'},
     {name:'羅馬尼亞硬舉', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'後鏈/膕繩肌，取代原本的腿彎舉機，自由重量例外項'},
-    {name:'槌式彎舉', cat:'輔助', sets:'3', rep:12, rpe:8, inc:2.5, unit:'kg', note:'二頭加量'},
+    {name:'槌式彎舉', cat:'輔助', sets:'4', rep:12, rpe:8, inc:2.5, unit:'kg', note:'二頭加量，2026-08加到4組補二頭容量'},
     {name:'過頭三頭延伸', cat:'輔助', sets:'3', rep:12, rpe:8, inc:2.5, unit:'kg', note:'三頭加量'}
   ]},
   {title:'推系（胸/肩/三頭）', exercises:[
     {name:'坐姿胸推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:2.5, unit:'kg', note:'主項，起始約95-100kg概算，現場校正'},
     {name:'肩推機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約胸推機50-60%起測，排第2位趁新鮮練，避免被兩個胸推動作榨乾'},
     {name:'上斜胸推機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約胸推機70-80%起測'},
-    {name:'側平舉', cat:'輔助', sets:'3', rep:15, rpe:8, inc:1, unit:'kg', note:'練肩寬/中束，壓推動作練不到的角度'},
+    {name:'側平舉', cat:'輔助', sets:'4', rep:15, rpe:8, inc:1, unit:'kg', note:'練肩寬/中束，壓推動作練不到的角度，2026-08加到4組補肩容量'},
     {name:'三頭下壓', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'繩索'}
   ]},
   {title:'拉系（背/二頭）', exercises:[
     {name:'坐姿划船機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約80-90kg概算，現場校正。抓高位、略寬握，手肘外展往鎖骨方向拉，練中背/菱形肌，跟下拉機做出區隔'},
+    {name:'坐姿窄握划船機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08新增，V字窄握，跟寬握版本角度不同，專門加強中背/菱形肌容量'},
     {name:'滑輪下拉機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約划船機80%起測'},
-    {name:'反向蝴蝶機', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'蝴蝶機面對機器坐，練後三角/上背，比臉拉穩定好控制'},
+    {name:'反向蝴蝶機', cat:'輔助', sets:'4', rep:15, rpe:8, inc:2.5, unit:'kg', note:'蝴蝶機面對機器坐，練後三角/上背，比臉拉穩定好控制，2026-08加到4組'},
     {name:'二頭彎舉機', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg'}
   ]}
 ];
