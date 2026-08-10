@@ -798,6 +798,41 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   </div>
 </div>
 
+<!-- TAB: 肌群（容量地圖，人體圖＋頻率圖） -->
+<div id="tab-muscle" class="tab-content" hidden>
+  <div class="page-header">
+    <h1>肌群</h1>
+    <p>這週各部位訓練容量與頻率，抓實際紀錄算出來的數字</p>
+  </div>
+  <div class="section" style="padding-top:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="moveMuscleWeek(-1)">‹ 上週</button>
+      <span id="muscle-week-label" style="font-size:13px;font-weight:700;color:#f0ece4"></span>
+      <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" id="muscle-week-next" onclick="moveMuscleWeek(1)">下週 ›</button>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <button class="btn btn-ghost" id="muscle-view-btn" style="padding:6px 14px;font-size:12px;margin-bottom:8px" onclick="toggleMuscleView()">🔄 切換背面</button>
+      <div id="muscle-svg-wrap"></div>
+      <div id="muscle-legend" style="margin-top:10px"></div>
+    </div>
+    <div class="sec-title" style="margin-top:18px">訓練頻率（每個部位一週練了幾天）</div>
+    <div class="card" style="padding:14px;height:260px">
+      <canvas id="muscle-freq-chart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- 肌群詳情 bottom sheet -->
+<div class="create-menu-overlay" id="muscle-detail-overlay" hidden onclick="if(event.target===this)closeMuscleDetail()">
+  <div class="create-menu-sheet">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div id="muscle-detail-title" style="font-size:18px;font-weight:800;color:#f0ece4"></div>
+      <div id="muscle-detail-status" style="font-size:12px;font-weight:700"></div>
+    </div>
+    <div id="muscle-detail-body"></div>
+    <button class="btn btn-ghost btn-full" style="margin-top:14px" onclick="closeMuscleDetail()">關閉</button>
+  </div>
+</div>
 
 <!-- 有氧記錄 overlay -->
 <div id="cardio-overlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeAddCardio()">
@@ -850,6 +885,9 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   </button>
   <button class="nav-btn" data-tab="coach" onclick="goTab('coach',this)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg>教練
+  </button>
+  <button class="nav-btn" data-tab="muscle" onclick="goTab('muscle',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="4" r="2"/><path d="M12 7v6M12 7c-2.5 0-4.5 1-5.5 2M12 7c2.5 0 4.5 1 5.5 2M12 13l-3 8M12 13l3 8"/></svg>肌群
   </button>
 </nav>
 
@@ -1244,6 +1282,7 @@ function goTab(tab,btn){
   if(tab==='menu')renderMenuTab();
   if(tab==='body')renderBodyTab();
   if(tab==='coach')renderCoachTab();
+  if(tab==='muscle')renderMuscleTab();
   if(getGASUrl()){
     flushPending();
     apiLoad().then(fresh=>{
@@ -1251,6 +1290,7 @@ function goTab(tab,btn){
       if(tab==='overview'){renderOverview();renderFreqProgress();}
       if(tab==='log'){renderLog();renderCharts();}
       if(tab==='coach')renderCoachTab();
+      if(tab==='muscle')renderMuscleTab();
     });
     if(tab==='body'){
       syncWeightFromGAS().then(renderBodyTab);
@@ -2153,49 +2193,49 @@ function loadTodayPlan(){
 // ── 動作示範資料庫 ──
 // 只當「從沒編輯過時」的預設值；實際示範資料是可編輯資料，見 getExerciseInfo()
 const DEFAULT_EXERCISE_INFO={
-  '保加利亞分腿蹲':{muscle:'腿部・臀部',cues:['後腳腳背放在椅面上，前腳距離椅子約一步半','下蹲時前膝沿腳尖方向，重心壓在前腳','啞鈴自然垂放身體兩側，軀幹保持直立']},
-  '坐姿腿彎舉機':{muscle:'腿後側',cues:['腳踝墊放在小腿後側阿基里斯腱上方','向下勾腿時保持控制，不要甩動','最低點停頓感受腿後收縮，緩慢回程']},
-  '坐姿小腿提踵機':{muscle:'小腿・比目魚肌',cues:['腳掌前段踩在踏板邊緣，腳跟懸空','全範圍上提到腳尖，頂點停頓1秒','緩慢下放到腳跟感受完全伸展']},
-  '槌式彎舉':{muscle:'二頭肌・前臂',cues:['啞鈴握法掌心相對（鎚式握），全程不旋轉手腕','手肘固定在身體兩側，不要用身體晃','緩慢下放，充分感受伸展']},
-  '過頭三頭延伸':{muscle:'三頭肌長頭',cues:['手肘朝前固定不外開，指向天花板','下放到手肘約90度，感受三頭伸展','伸展時感受三頭完全收縮，避免腰部代償']},
-  '坐姿胸推機':{muscle:'胸部・三頭',cues:['坐正，背貼椅背，握把約胸口高度','推出時不要聳肩，感受胸部發力','緩慢回程，不要讓重量完全卸下']},
-  '上斜胸推機':{muscle:'上胸・三頭',cues:['調整座椅使握把對齊上胸位置','推出時感受上胸發力，不要聳肩','緩慢回程，全程控制']},
-  '肩推機':{muscle:'肩膀・三頭',cues:['調整座椅至手把約肩膀高度','推出時感受三角肌前中束發力','不要鎖死手肘，保留微彎']},
-  '坐姿划船機':{muscle:'中背・後三角',cues:['抓高位、略寬握把，挺胸坐直，腳踩踏板','手肘外展，往鎖骨/上胸方向拉（不是拉向下腹）','緩慢放回，感受中背/菱形肌伸展，不聳肩']},
-  '滑輪下拉機':{muscle:'背闊・二頭',cues:['雙手寬握距，挺胸微後仰','手肘往下往後拉，感受背闊','放回時手臂充分伸展，別讓肩膀聳起']},
-  '直臂下壓機':{muscle:'背闊肌',cues:['手臂維持微彎固定角度，不要用手肘彎曲代償','用背闊發力把握把往下壓','緩慢回程，感受背闊完全伸展']},
-  '二頭彎舉機':{muscle:'二頭肌',cues:['上臂貼緊靠墊，固定手肘位置','完整動作範圍，充分彎曲與伸展','不要讓肩膀前傾代償']},
-  '槓鈴背蹲舉':{muscle:'腿部・臀部',cues:['槓鈴置於上背斜方肌，不是頸椎','雙腳略寬於肩，下蹲時膝蓋沿腳尖方向','蹲到大腿低於水平，核心全程收緊']},
-  '槓鈴前蹲舉':{muscle:'股四頭肌・核心',cues:['槓鈴架在前三角肌，手肘盡量抬高','軀幹保持直立，避免前傾','下蹲時膝蓋往前推，重心維持在腳掌中段']},
-  '腿推機':{muscle:'腿部',cues:['腳掌踩在踏板中上部位','膝蓋對齊腳尖，不要內扣','推起時膝蓋保留微彎，不要鎖死']},
-  '羅馬尼亞硬舉':{muscle:'腿後・臀部',cues:['雙腳微屈膝，槓鈴沿大腿下滑','髖部往後推，感受腿後側延伸','背部始終保持中立，不要拱背']},
-  '勾腿機器':{muscle:'腿後側',cues:['腳踝墊放在阿基里斯腱位置','勾腿時保持控制，不要甩動','在最高點停頓1秒感受腿後收縮']},
-  '分腿蹲':{muscle:'腿部・臀部',cues:['前腳踩穩，後腳腳背貼地','前膝沿腳尖方向彎曲','下沉時後膝接近但不碰地面']},
-  '槓鈴划船':{muscle:'背部・二頭',cues:['上身前傾約45度，背部挺直不拱','槓鈴往下腹方向拉，手肘貼身體','放下時完全伸展手臂感受背闊']},
-  '引體向上':{muscle:'背闊・二頭',cues:['雙手略寬於肩，掌心朝外','用背發力往上拉，下巴過槓','下放時手臂完全伸直，控制不要甩']},
-  '滑輪下拉':{muscle:'背闊・二頭',cues:['雙手寬握距，挺胸微後仰','手肘往下往後拉，感受背闊','放回時手臂充分伸展，別讓肩膀聳起']},
-  '單邊啞鈴划船':{muscle:'背部',cues:['一手支撐凳子，上身平行地面','啞鈴往腰側拉，手肘朝後上方','放下時手臂完全伸直感受背部伸展']},
-  '槓鈴臥推':{muscle:'胸部・三頭',cues:['肩胛夾緊固定在椅背上','槓鈴下放至胸口中下位置','上推時手肘不要完全鎖死']},
-  '上斜啞鈴臥推':{muscle:'上胸・三頭',cues:['椅背調整約30-45度','啞鈴從肩膀高度下放','上推時感受上胸發力，不要聳肩']},
-  '機械胸推':{muscle:'胸部・三頭',cues:['坐正，背貼椅背，腳踩穩地面','把手握在胸部高度，手肘與地面平行','推出時不要聳肩，感受胸部發力']},
-  '雙槓撐體':{muscle:'下胸・三頭',cues:['身體微前傾加強胸部刺激','下放到肩膀略低於手肘','推起時手肘不完全鎖死']},
-  '蝴蝶機夾胸':{muscle:'胸部',cues:['背部貼緊椅背，核心收緊','雙臂往中間夾，感受胸肌收縮','緩慢回程，感受胸部完整伸展']},
-  '槓鈴站姿肩推':{muscle:'肩膀・三頭',cues:['核心收緊，避免腰部過度後仰','槓鈴從鎖骨高度往上推直','下放時控制速度，不要用腰部代償']},
-  '啞鈴肩推':{muscle:'肩膀・三頭',cues:['啞鈴在耳朵旁，手肘朝前方','核心收緊，避免腰部後仰代償','往上推直，控制下放不要太快']},
-  '側平舉':{muscle:'中三角肌',cues:['手肘微彎，帶動啞鈴往兩側抬起','抬至與肩同高即可，不要聳肩','緩慢下放，全程控制不甩動']},
-  '反向蝴蝶機':{muscle:'後三角・上背',cues:['蝴蝶機面對機器坐（跟夾胸方向相反）','雙手往後展開，感受肩胛夾緊','緩慢回程，全程控制不甩動，比繩索臉拉穩定好抓']},
-  '臉拉':{muscle:'後三角・外旋肌',cues:['站或坐在繩索前，雙手各握一側','往臉的方向拉，手肘往後展開','感受後三角與夾肩胛，保持挺胸']},
-  '槓鈴二頭彎舉':{muscle:'二頭肌',cues:['手肘貼緊身體兩側，不要用身體晃','彎舉到最高點感受二頭完全收縮','緩慢放下，充分感受伸展']},
-  '啞鈴二頭彎舉':{muscle:'二頭肌',cues:['手肘貼緊身體兩側，不要用身體晃','彎舉到最高點時旋轉手腕，小指朝上','緩慢放下，充分感受二頭伸展']},
-  '三頭下壓':{muscle:'三頭肌',cues:['手肘固定在身體兩側，不要晃動','往下壓到手臂完全伸展','緩慢還原，不要讓手肘飛出去']},
-  '過頭三頭伸展':{muscle:'三頭肌長頭',cues:['手肘朝前固定不外開','下放到手肘約90度','伸展時感受三頭完全收縮']},
-  '傳統硬舉':{muscle:'全身後鏈',cues:['槓鈴貼近脛骨，握距略寬於肩','起槓時背部打直，用髖部和腿部發力','鎖定時臀部夾緊，不要過度後仰']},
-  '壺鈴硬舉':{muscle:'腿部・後鏈',cues:['雙腳與肩同寬，壺鈴置於雙腳之間','髖部往後推，保持背部平直不拱腰','起身時臀部夾緊，髖部往前推送完成動作']},
-  '臀推機':{muscle:'臀部',cues:['背部靠墊調整到肩胛下方，膝蓋約90度','腳掌踩穩，髖部往上推到身體呈一直線','頂點夾緊臀部1-2秒，下放時不要完全卸力']},
-  '臀外展機':{muscle:'臀中肌',cues:['坐正，膝蓋彎曲90度','往外展開時感受臀部外側肌肉','慢慢回來，全程控制不要甩']},
-  '棒式':{muscle:'核心全面',cues:['前臂撐地，身體從頭到腳呈一直線','肚臍往脊椎方向收緊，不要撅屁股','正常呼吸，不要憋氣，目視地面']},
-  '懸吊抬腿':{muscle:'下腹核心',cues:['懸吊在單槓上，肩胛穩定不聳肩','用核心力量把腿抬起，不要甩動','緩慢下放，全程控制不要盪']},
-  '死蟲':{muscle:'核心・深層肌',cues:['仰躺，手臂伸直指天，腿抬高90度','對側手腳同時往地面延伸，腰背貼地','呼氣時往下，吸氣回來，動作要慢']}
+  '保加利亞分腿蹲':{muscle:'腿部・臀部',cues:['後腳腳背放在椅面上，前腳距離椅子約一步半','下蹲時前膝沿腳尖方向，重心壓在前腳','啞鈴自然垂放身體兩側，軀幹保持直立'],muscles:{primary:['quads'],secondary:['glutes']}},
+  '坐姿腿彎舉機':{muscle:'腿後側',cues:['腳踝墊放在小腿後側阿基里斯腱上方','向下勾腿時保持控制，不要甩動','最低點停頓感受腿後收縮，緩慢回程'],muscles:{primary:['hamstrings'],secondary:[]}},
+  '坐姿小腿提踵機':{muscle:'小腿・比目魚肌',cues:['腳掌前段踩在踏板邊緣，腳跟懸空','全範圍上提到腳尖，頂點停頓1秒','緩慢下放到腳跟感受完全伸展'],muscles:{primary:['calves'],secondary:[]}},
+  '槌式彎舉':{muscle:'二頭肌・前臂',cues:['啞鈴握法掌心相對（鎚式握），全程不旋轉手腕','手肘固定在身體兩側，不要用身體晃','緩慢下放，充分感受伸展'],muscles:{primary:['biceps'],secondary:[]}},
+  '過頭三頭延伸':{muscle:'三頭肌長頭',cues:['手肘朝前固定不外開，指向天花板','下放到手肘約90度，感受三頭伸展','伸展時感受三頭完全收縮，避免腰部代償'],muscles:{primary:['triceps'],secondary:[]}},
+  '坐姿胸推機':{muscle:'胸部・三頭',cues:['坐正，背貼椅背，握把約胸口高度','推出時不要聳肩，感受胸部發力','緩慢回程，不要讓重量完全卸下'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '上斜胸推機':{muscle:'上胸・三頭',cues:['調整座椅使握把對齊上胸位置','推出時感受上胸發力，不要聳肩','緩慢回程，全程控制'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '肩推機':{muscle:'肩膀・三頭',cues:['調整座椅至手把約肩膀高度','推出時感受三角肌前中束發力','不要鎖死手肘，保留微彎'],muscles:{primary:['shoulders'],secondary:['triceps']}},
+  '坐姿划船機':{muscle:'中背・後三角',cues:['抓高位、略寬握把，挺胸坐直，腳踩踏板','手肘外展，往鎖骨/上胸方向拉（不是拉向下腹）','緩慢放回，感受中背/菱形肌伸展，不聳肩'],muscles:{primary:['midBack'],secondary:['biceps','shoulders']}},
+  '滑輪下拉機':{muscle:'背闊・二頭',cues:['雙手寬握距，挺胸微後仰','手肘往下往後拉，感受背闊','放回時手臂充分伸展，別讓肩膀聳起'],muscles:{primary:['lats'],secondary:['biceps']}},
+  '直臂下壓機':{muscle:'背闊肌',cues:['手臂維持微彎固定角度，不要用手肘彎曲代償','用背闊發力把握把往下壓','緩慢回程，感受背闊完全伸展'],muscles:{primary:['lats'],secondary:[]}},
+  '二頭彎舉機':{muscle:'二頭肌',cues:['上臂貼緊靠墊，固定手肘位置','完整動作範圍，充分彎曲與伸展','不要讓肩膀前傾代償'],muscles:{primary:['biceps'],secondary:[]}},
+  '槓鈴背蹲舉':{muscle:'腿部・臀部',cues:['槓鈴置於上背斜方肌，不是頸椎','雙腳略寬於肩，下蹲時膝蓋沿腳尖方向','蹲到大腿低於水平，核心全程收緊'],muscles:{primary:['quads'],secondary:['glutes','core']}},
+  '槓鈴前蹲舉':{muscle:'股四頭肌・核心',cues:['槓鈴架在前三角肌，手肘盡量抬高','軀幹保持直立，避免前傾','下蹲時膝蓋往前推，重心維持在腳掌中段'],muscles:{primary:['quads'],secondary:['core']}},
+  '腿推機':{muscle:'腿部',cues:['腳掌踩在踏板中上部位','膝蓋對齊腳尖，不要內扣','推起時膝蓋保留微彎，不要鎖死'],muscles:{primary:['quads'],secondary:['glutes']}},
+  '羅馬尼亞硬舉':{muscle:'腿後・臀部',cues:['雙腳微屈膝，槓鈴沿大腿下滑','髖部往後推，感受腿後側延伸','背部始終保持中立，不要拱背'],muscles:{primary:['hamstrings'],secondary:['glutes','lowerBack']}},
+  '勾腿機器':{muscle:'腿後側',cues:['腳踝墊放在阿基里斯腱位置','勾腿時保持控制，不要甩動','在最高點停頓1秒感受腿後收縮'],muscles:{primary:['hamstrings'],secondary:[]}},
+  '分腿蹲':{muscle:'腿部・臀部',cues:['前腳踩穩，後腳腳背貼地','前膝沿腳尖方向彎曲','下沉時後膝接近但不碰地面'],muscles:{primary:['quads'],secondary:['glutes']}},
+  '槓鈴划船':{muscle:'背部・二頭',cues:['上身前傾約45度，背部挺直不拱','槓鈴往下腹方向拉，手肘貼身體','放下時完全伸展手臂感受背闊'],muscles:{primary:['midBack'],secondary:['lats','biceps']}},
+  '引體向上':{muscle:'背闊・二頭',cues:['雙手略寬於肩，掌心朝外','用背發力往上拉，下巴過槓','下放時手臂完全伸直，控制不要甩'],muscles:{primary:['lats'],secondary:['biceps','midBack']}},
+  '滑輪下拉':{muscle:'背闊・二頭',cues:['雙手寬握距，挺胸微後仰','手肘往下往後拉，感受背闊','放回時手臂充分伸展，別讓肩膀聳起'],muscles:{primary:['lats'],secondary:['biceps']}},
+  '單邊啞鈴划船':{muscle:'背部',cues:['一手支撐凳子，上身平行地面','啞鈴往腰側拉，手肘朝後上方','放下時手臂完全伸直感受背部伸展'],muscles:{primary:['lats'],secondary:['midBack','biceps']}},
+  '槓鈴臥推':{muscle:'胸部・三頭',cues:['肩胛夾緊固定在椅背上','槓鈴下放至胸口中下位置','上推時手肘不要完全鎖死'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '上斜啞鈴臥推':{muscle:'上胸・三頭',cues:['椅背調整約30-45度','啞鈴從肩膀高度下放','上推時感受上胸發力，不要聳肩'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '機械胸推':{muscle:'胸部・三頭',cues:['坐正，背貼椅背，腳踩穩地面','把手握在胸部高度，手肘與地面平行','推出時不要聳肩，感受胸部發力'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '雙槓撐體':{muscle:'下胸・三頭',cues:['身體微前傾加強胸部刺激','下放到肩膀略低於手肘','推起時手肘不完全鎖死'],muscles:{primary:['chest'],secondary:['triceps','shoulders']}},
+  '蝴蝶機夾胸':{muscle:'胸部',cues:['背部貼緊椅背，核心收緊','雙臂往中間夾，感受胸肌收縮','緩慢回程，感受胸部完整伸展'],muscles:{primary:['chest'],secondary:[]}},
+  '槓鈴站姿肩推':{muscle:'肩膀・三頭',cues:['核心收緊，避免腰部過度後仰','槓鈴從鎖骨高度往上推直','下放時控制速度，不要用腰部代償'],muscles:{primary:['shoulders'],secondary:['triceps','core']}},
+  '啞鈴肩推':{muscle:'肩膀・三頭',cues:['啞鈴在耳朵旁，手肘朝前方','核心收緊，避免腰部後仰代償','往上推直，控制下放不要太快'],muscles:{primary:['shoulders'],secondary:['triceps']}},
+  '側平舉':{muscle:'中三角肌',cues:['手肘微彎，帶動啞鈴往兩側抬起','抬至與肩同高即可，不要聳肩','緩慢下放，全程控制不甩動'],muscles:{primary:['shoulders'],secondary:[]}},
+  '反向蝴蝶機':{muscle:'後三角・上背',cues:['蝴蝶機面對機器坐（跟夾胸方向相反）','雙手往後展開，感受肩胛夾緊','緩慢回程，全程控制不甩動，比繩索臉拉穩定好抓'],muscles:{primary:['shoulders'],secondary:['midBack']}},
+  '臉拉':{muscle:'後三角・外旋肌',cues:['站或坐在繩索前，雙手各握一側','往臉的方向拉，手肘往後展開','感受後三角與夾肩胛，保持挺胸'],muscles:{primary:['shoulders'],secondary:['midBack']}},
+  '槓鈴二頭彎舉':{muscle:'二頭肌',cues:['手肘貼緊身體兩側，不要用身體晃','彎舉到最高點感受二頭完全收縮','緩慢放下，充分感受伸展'],muscles:{primary:['biceps'],secondary:[]}},
+  '啞鈴二頭彎舉':{muscle:'二頭肌',cues:['手肘貼緊身體兩側，不要用身體晃','彎舉到最高點時旋轉手腕，小指朝上','緩慢放下，充分感受二頭伸展'],muscles:{primary:['biceps'],secondary:[]}},
+  '三頭下壓':{muscle:'三頭肌',cues:['手肘固定在身體兩側，不要晃動','往下壓到手臂完全伸展','緩慢還原，不要讓手肘飛出去'],muscles:{primary:['triceps'],secondary:[]}},
+  '過頭三頭伸展':{muscle:'三頭肌長頭',cues:['手肘朝前固定不外開','下放到手肘約90度','伸展時感受三頭完全收縮'],muscles:{primary:['triceps'],secondary:[]}},
+  '傳統硬舉':{muscle:'全身後鏈',cues:['槓鈴貼近脛骨，握距略寬於肩','起槓時背部打直，用髖部和腿部發力','鎖定時臀部夾緊，不要過度後仰'],muscles:{primary:['hamstrings','lowerBack'],secondary:['glutes','lats']}},
+  '壺鈴硬舉':{muscle:'腿部・後鏈',cues:['雙腳與肩同寬，壺鈴置於雙腳之間','髖部往後推，保持背部平直不拱腰','起身時臀部夾緊，髖部往前推送完成動作'],muscles:{primary:['hamstrings'],secondary:['glutes','lowerBack']}},
+  '臀推機':{muscle:'臀部',cues:['背部靠墊調整到肩胛下方，膝蓋約90度','腳掌踩穩，髖部往上推到身體呈一直線','頂點夾緊臀部1-2秒，下放時不要完全卸力'],muscles:{primary:['glutes'],secondary:['hamstrings']}},
+  '臀外展機':{muscle:'臀中肌',cues:['坐正，膝蓋彎曲90度','往外展開時感受臀部外側肌肉','慢慢回來，全程控制不要甩'],muscles:{primary:['glutes'],secondary:[]}},
+  '棒式':{muscle:'核心全面',cues:['前臂撐地，身體從頭到腳呈一直線','肚臍往脊椎方向收緊，不要撅屁股','正常呼吸，不要憋氣，目視地面'],muscles:{primary:['core'],secondary:[]}},
+  '懸吊抬腿':{muscle:'下腹核心',cues:['懸吊在單槓上，肩胛穩定不聳肩','用核心力量把腿抬起，不要甩動','緩慢下放，全程控制不要盪'],muscles:{primary:['core'],secondary:[]}},
+  '死蟲':{muscle:'核心・深層肌',cues:['仰躺，手臂伸直指天，腿抬高90度','對側手腳同時往地面延伸，腰背貼地','呼氣時往下，吸氣回來，動作要慢'],muscles:{primary:['core'],secondary:[]}}
 };
 const EXERCISE_INFO_KEY='bulk_exercise_info_v1';
 function getExerciseInfo(){
@@ -2221,6 +2261,262 @@ async function syncExerciseInfoFromGAS(){
 function getAssistedExNames(){
   const info=getExerciseInfo();
   return Object.keys(info).filter(n=>info[n]&&info[n].assisted);
+}
+
+// ══════════════════════════════════════════
+// 肌群容量地圖：動作→肌群結構化對照 + 每週建議組數區間
+// ══════════════════════════════════════════
+const MUSCLE_GROUPS=[
+  {key:'chest',label:'胸',view:'front'},
+  {key:'shoulders',label:'肩',view:'both'},
+  {key:'biceps',label:'二頭',view:'front'},
+  {key:'triceps',label:'三頭',view:'back'},
+  {key:'lats',label:'背闊',view:'back'},
+  {key:'midBack',label:'中背',view:'back'},
+  {key:'lowerBack',label:'下背',view:'back'},
+  {key:'quads',label:'股四頭',view:'front'},
+  {key:'hamstrings',label:'膕繩後鏈',view:'back'},
+  {key:'glutes',label:'臀部',view:'back'},
+  {key:'calves',label:'小腿',view:'back'},
+  {key:'core',label:'核心',view:'front'}
+];
+const MUSCLE_LABEL={};MUSCLE_GROUPS.forEach(m=>MUSCLE_LABEL[m.key]=m.label);
+// 每週建議組數區間（MEV最低有效/MAV理想上限/MRV超過易過度訓練），依常見肌肥大訓練文獻通則估算，非個人化精算
+const MUSCLE_VOLUME_LANDMARKS={
+  chest:{mev:8,mav:[12,20],mrv:24},
+  shoulders:{mev:8,mav:[16,22],mrv:26},
+  biceps:{mev:6,mav:[10,16],mrv:20},
+  triceps:{mev:6,mav:[10,14],mrv:18},
+  lats:{mev:8,mav:[12,18],mrv:22},
+  midBack:{mev:6,mav:[10,16],mrv:20},
+  lowerBack:{mev:4,mav:[6,10],mrv:12},
+  quads:{mev:8,mav:[12,18],mrv:22},
+  hamstrings:{mev:4,mav:[8,12],mrv:16},
+  glutes:{mev:4,mav:[8,12],mrv:16},
+  calves:{mev:8,mav:[12,16],mrv:20},
+  core:{mev:0,mav:[6,10],mrv:16}
+};
+// 動作名稱關鍵字比對，給使用者自建（沒有 muscles 結構化資料）的動作用的 fallback
+function guessMusclesFromText(muscleText){
+  const t=muscleText||'';
+  const map=[
+    [/胸/,'chest'],[/肩|三角/,'shoulders'],[/二頭/,'biceps'],[/三頭/,'triceps'],
+    [/背闊/,'lats'],[/中背|菱形|後三角/,'midBack'],[/下背|下腰/,'lowerBack'],
+    [/股四頭|大腿前|腿部/,'quads'],[/腿後|膕繩|後鏈/,'hamstrings'],
+    [/臀/,'glutes'],[/小腿/,'calves'],[/核心|腹/,'core']
+  ];
+  const primary=[];
+  map.forEach(([re,key])=>{if(re.test(t)&&!primary.includes(key))primary.push(key);});
+  return{primary,secondary:[]};
+}
+function getExerciseMuscles(name){
+  const info=getExerciseInfo()[name];
+  if(!info)return{primary:[],secondary:[]};
+  if(info.muscles)return info.muscles;
+  return guessMusclesFromText(info.muscle);
+}
+// 給定任一天日期，回傳該天所在週（週一~週日）的邊界
+function getWeekRange(dateStr){
+  const d=new Date(dateStr+'T00:00:00');
+  const dow=d.getDay();
+  const mon=new Date(d);mon.setDate(d.getDate()-(dow===0?6:dow-1));mon.setHours(0,0,0,0);
+  const sun=new Date(mon);sun.setDate(mon.getDate()+6);sun.setHours(23,59,59,999);
+  return{monday:mon,sunday:sun};
+}
+function dateToStr(d){return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;}
+// 算某一週（用該週內任一天日期代表）每個肌群的容量（主要×1.0＋次要×0.5）跟頻率（命中幾個不同訓練日）
+function computeMuscleStats(anyDateInWeek){
+  const{monday,sunday}=getWeekRange(anyDateInWeek);
+  const sessions=WK.filter(w=>{const d=new Date(w.date+'T00:00:00');return d>=monday&&d<=sunday;});
+  const raw={};
+  MUSCLE_GROUPS.forEach(m=>{raw[m.key]={primarySets:0,secondarySets:0,dayHitPrimary:new Set(),dayHitAny:new Set(),contributors:[]};});
+  const trainedDays=new Set();
+  sessions.forEach(s=>{
+    trainedDays.add(s.date);
+    (s.exercises||[]).forEach(ex=>{
+      const setCount=(ex.sets||[]).length;
+      if(!setCount)return;
+      const muscles=getExerciseMuscles(ex.name);
+      (muscles.primary||[]).forEach(key=>{
+        if(!raw[key])return;
+        raw[key].primarySets+=setCount;
+        raw[key].dayHitPrimary.add(s.date);
+        raw[key].dayHitAny.add(s.date);
+        raw[key].contributors.push({name:ex.name,sets:setCount,role:'primary'});
+      });
+      (muscles.secondary||[]).forEach(key=>{
+        if(!raw[key])return;
+        raw[key].secondarySets+=setCount;
+        raw[key].dayHitAny.add(s.date);
+        raw[key].contributors.push({name:ex.name,sets:setCount,role:'secondary'});
+      });
+    });
+  });
+  const totalTrainedDays=trainedDays.size;
+  const muscles={};
+  MUSCLE_GROUPS.forEach(m=>{
+    const st=raw[m.key];
+    const weightedVolume=Math.round((st.primarySets*1+st.secondarySets*0.5)*10)/10;
+    const landmark=MUSCLE_VOLUME_LANDMARKS[m.key];
+    let statusColor='gray';
+    if(weightedVolume>0){
+      if(weightedVolume<landmark.mev)statusColor='blue';
+      else if(weightedVolume<=landmark.mav[1])statusColor='green';
+      else if(weightedVolume<=landmark.mrv)statusColor='orange';
+      else statusColor='red';
+    }
+    muscles[m.key]={
+      primarySets:st.primarySets,secondarySets:st.secondarySets,weightedVolume,
+      primaryDays:st.dayHitPrimary.size,anyDays:st.dayHitAny.size,totalTrainedDays,
+      landmark,statusColor,contributors:st.contributors
+    };
+  });
+  return{weekStart:monday,weekEnd:sunday,totalTrainedDays,muscles};
+}
+
+// ── 人體 SVG 圖：簡化示意輪廓＋色塊（不是解剖精細圖），正/背面各自疊圖層 ──
+const MUSCLE_STATUS_COLOR={gray:'#2a2a2a',blue:'#60a5fa',green:'#4ade80',orange:'#f59e0b',red:'#f87171'};
+let _muscleView='front';
+let _muscleWeekOffset=0; // 0=本週，-1=上週...
+function bodyOutlineSvg(){
+  const s='rgba(240,236,228,.25)';
+  return`
+    <circle cx="100" cy="25" r="18" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="93" y="40" width="14" height="10" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="65" y="48" rx="18" width="70" height="112" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="35" y="55" rx="10" width="22" height="70" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="32" y="122" rx="8" width="18" height="60" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="143" y="55" rx="10" width="22" height="70" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="150" y="122" rx="8" width="18" height="60" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="68" y="160" rx="12" width="28" height="90" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="104" y="160" rx="12" width="28" height="90" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="70" y="252" rx="10" width="24" height="80" fill="none" stroke="${s}" stroke-width="2"/>
+    <rect x="106" y="252" rx="10" width="24" height="80" fill="none" stroke="${s}" stroke-width="2"/>
+  `;
+}
+// 每個肌群在正/背面圖上的疊層形狀，shape 為 SVG 標籤名，attrs 為屬性
+const MUSCLE_SHAPES={
+  front:{
+    chest:[{shape:'rect',x:72,y:58,rx:10,width:56,height:32}],
+    shoulders:[{shape:'circle',cx:46,cy:60,r:12},{shape:'circle',cx:154,cy:60,r:12}],
+    biceps:[{shape:'rect',x:37,y:70,rx:8,width:18,height:40},{shape:'rect',x:145,y:70,rx:8,width:18,height:40}],
+    core:[{shape:'rect',x:78,y:95,rx:8,width:44,height:55}],
+    quads:[{shape:'rect',x:70,y:165,rx:10,width:24,height:75},{shape:'rect',x:106,y:165,rx:10,width:24,height:75}]
+  },
+  back:{
+    shoulders:[{shape:'circle',cx:46,cy:60,r:12},{shape:'circle',cx:154,cy:60,r:12}],
+    triceps:[{shape:'rect',x:37,y:70,rx:8,width:18,height:40},{shape:'rect',x:145,y:70,rx:8,width:18,height:40}],
+    midBack:[{shape:'rect',x:88,y:58,rx:6,width:24,height:40}],
+    lats:[{shape:'rect',x:68,y:70,rx:10,width:20,height:50},{shape:'rect',x:112,y:70,rx:10,width:20,height:50}],
+    lowerBack:[{shape:'rect',x:80,y:145,rx:8,width:40,height:25}],
+    glutes:[{shape:'ellipse',cx:82,cy:170,rx:16,ry:14},{shape:'ellipse',cx:118,cy:170,rx:16,ry:14}],
+    hamstrings:[{shape:'rect',x:70,y:165,rx:10,width:24,height:75},{shape:'rect',x:106,y:165,rx:10,width:24,height:75}],
+    calves:[{shape:'rect',x:70,y:255,rx:10,width:24,height:70},{shape:'rect',x:106,y:255,rx:10,width:24,height:70}]
+  }
+};
+function shapeToSvg(key,def,color){
+  const common=`fill="${color}" fill-opacity="0.75" stroke="${color}" stroke-width="1.5" style="cursor:pointer" onclick="openMuscleDetail('${key}')"`;
+  if(def.shape==='circle')return`<circle cx="${def.cx}" cy="${def.cy}" r="${def.r}" ${common}/>`;
+  if(def.shape==='ellipse')return`<ellipse cx="${def.cx}" cy="${def.cy}" rx="${def.rx}" ry="${def.ry}" ${common}/>`;
+  return`<rect x="${def.x}" y="${def.y}" rx="${def.rx}" width="${def.width}" height="${def.height}" ${common}/>`;
+}
+function renderBodySvg(view,stats){
+  const shapes=MUSCLE_SHAPES[view];
+  let overlay='';
+  Object.keys(shapes).forEach(key=>{
+    const color=MUSCLE_STATUS_COLOR[stats.muscles[key]?.statusColor||'gray'];
+    shapes[key].forEach(def=>{overlay+=shapeToSvg(key,def,color);});
+  });
+  return`<svg viewBox="0 0 200 340" style="width:100%;max-width:280px;display:block;margin:0 auto">${bodyOutlineSvg()}${overlay}</svg>`;
+}
+function muscleStatusLabel(color){
+  return{gray:'尚無資料',blue:'低於最低有效量',green:'理想範圍',orange:'偏高，留意疲勞',red:'超過建議上限'}[color]||'';
+}
+function openMuscleDetail(key){
+  const anyDate=weekOffsetDateStr(_muscleWeekOffset);
+  const stats=computeMuscleStats(anyDate);
+  const st=stats.muscles[key];if(!st)return;
+  const lm=st.landmark;
+  const list=st.contributors.length
+    ?st.contributors.map(c=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="color:#f0ece4">${c.name}</span><span style="color:rgba(240,236,228,.5)">${c.sets}組・${c.role==='primary'?'主要':'次要'}</span></div>`).join('')
+    :'<div style="font-size:12.5px;color:rgba(240,236,228,.35);padding:6px 0">這週還沒有動作練到這個部位</div>';
+  document.getElementById('muscle-detail-title').textContent=MUSCLE_LABEL[key];
+  document.getElementById('muscle-detail-status').innerHTML=`<span style="color:${MUSCLE_STATUS_COLOR[st.statusColor]}">${muscleStatusLabel(st.statusColor)}</span>`;
+  document.getElementById('muscle-detail-body').innerHTML=`
+    <div style="display:flex;gap:10px;margin:12px 0">
+      <div style="flex:1;background:#161616;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:20px;font-weight:800;color:#f0ece4">${st.primarySets}</div>
+        <div style="font-size:10.5px;color:rgba(240,236,228,.4);margin-top:2px">主要組數</div>
+      </div>
+      <div style="flex:1;background:#161616;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:20px;font-weight:800;color:#f0ece4">${st.secondarySets}</div>
+        <div style="font-size:10.5px;color:rgba(240,236,228,.4);margin-top:2px">次要組數</div>
+      </div>
+      <div style="flex:1;background:#161616;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:20px;font-weight:800;color:#f59e0b">${st.weightedVolume}</div>
+        <div style="font-size:10.5px;color:rgba(240,236,228,.4);margin-top:2px">加權容量</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:rgba(240,236,228,.5);margin-bottom:4px">建議每週組數：MEV ${lm.mev}・理想 ${lm.mav[0]}-${lm.mav[1]}・上限 ${lm.mrv}（研究區間參考值，非個人化精算）</div>
+    <div style="font-size:12px;color:rgba(240,236,228,.5);margin-bottom:12px">頻率：主要動作命中 ${st.primaryDays}/${st.totalTrainedDays||0} 訓練日，含次要則 ${st.anyDays}/${st.totalTrainedDays||0}</div>
+    <div class="sec-title" style="margin-bottom:2px">這週的動作貢獻</div>
+    ${list}
+  `;
+  showSheet('muscle-detail-overlay');
+}
+function closeMuscleDetail(){hideSheet('muscle-detail-overlay');}
+function weekOffsetDateStr(offset){
+  const d=new Date();d.setDate(d.getDate()+offset*7);
+  return dateToStr(d);
+}
+function toggleMuscleView(){
+  _muscleView=_muscleView==='front'?'back':'front';
+  renderMuscleTab();
+}
+function moveMuscleWeek(delta){
+  _muscleWeekOffset+=delta;
+  if(_muscleWeekOffset>0)_muscleWeekOffset=0; // 不能看到未來週
+  renderMuscleTab();
+}
+let _muscleFreqChart=null;
+function renderMuscleFreqChart(stats){
+  const el=document.getElementById('muscle-freq-chart');if(!el)return;
+  if(_muscleFreqChart){_muscleFreqChart.destroy();_muscleFreqChart=null;}
+  const labels=MUSCLE_GROUPS.map(m=>m.label);
+  const primaryData=MUSCLE_GROUPS.map(m=>stats.muscles[m.key].primaryDays);
+  const anyData=MUSCLE_GROUPS.map(m=>stats.muscles[m.key].anyDays);
+  _muscleFreqChart=new Chart(el.getContext('2d'),{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'主要',data:primaryData,backgroundColor:'#f59e0b',borderRadius:4,borderSkipped:false},
+      {label:'主要+次要',data:anyData,backgroundColor:'rgba(245,158,11,.35)',borderRadius:4,borderSkipped:false}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{ticks:{color:'rgba(254,249,238,.35)',font:{size:10}},grid:{display:false}},
+        y:{beginAtZero:true,max:Math.max(stats.totalTrainedDays,1),ticks:{stepSize:1,color:'rgba(254,249,238,.35)'},grid:{color:'rgba(245,158,11,.08)'}}
+      },
+      plugins:{legend:{display:true,labels:{color:'rgba(254,249,238,.5)',font:{size:10},boxWidth:10}}}
+    }
+  });
+}
+function renderMuscleTab(){
+  const anyDate=weekOffsetDateStr(_muscleWeekOffset);
+  const stats=computeMuscleStats(anyDate);
+  const ws=stats.weekStart,we=stats.weekEnd;
+  const label=`${ws.getMonth()+1}/${ws.getDate()} - ${we.getMonth()+1}/${we.getDate()}${_muscleWeekOffset===0?'（本週）':''}`;
+  const lbl=document.getElementById('muscle-week-label');if(lbl)lbl.textContent=label;
+  const nextBtn=document.getElementById('muscle-week-next');if(nextBtn)nextBtn.disabled=_muscleWeekOffset>=0;
+  const viewBtn=document.getElementById('muscle-view-btn');if(viewBtn)viewBtn.textContent=_muscleView==='front'?'🔄 切換背面':'🔄 切換正面';
+  const svgEl=document.getElementById('muscle-svg-wrap');if(svgEl)svgEl.innerHTML=renderBodySvg(_muscleView,stats);
+  const legendEl=document.getElementById('muscle-legend');
+  if(legendEl){
+    legendEl.innerHTML=[
+      ['gray','尚無資料'],['blue','偏低'],['green','理想範圍'],['orange','偏高'],['red','超過上限']
+    ].map(([c,t])=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:rgba(240,236,228,.5);margin-right:10px"><span style="width:8px;height:8px;border-radius:50%;background:${MUSCLE_STATUS_COLOR[c]};display:inline-block"></span>${t}</span>`).join('');
+  }
+  renderMuscleFreqChart(stats);
 }
 
 // ── 動作改名：一次同步動作庫、示範資料、教練課表、歷史 Google Sheet 紀錄、本地快取 ──
