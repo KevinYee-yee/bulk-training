@@ -802,14 +802,19 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
 <div id="tab-muscle" class="tab-content" hidden>
   <div class="page-header">
     <h1>肌群</h1>
-    <p>這週各部位訓練容量與頻率，抓實際紀錄算出來的數字</p>
+    <p>各部位訓練容量與頻率，可切換看課表預覽或實際紀錄</p>
   </div>
   <div class="section" style="padding-top:10px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="display:flex;background:#161616;border-radius:10px;padding:3px;margin-bottom:10px">
+      <button class="muscle-mode-btn" id="muscle-mode-preview" style="flex:1;padding:8px;font-size:12.5px;font-weight:700;border:none;border-radius:8px;background:transparent;color:rgba(240,236,228,.5);cursor:pointer;font-family:inherit" onclick="setMuscleMode('preview')">📋 預覽（本週課表）</button>
+      <button class="muscle-mode-btn" id="muscle-mode-actual" style="flex:1;padding:8px;font-size:12.5px;font-weight:700;border:none;border-radius:8px;background:transparent;color:rgba(240,236,228,.5);cursor:pointer;font-family:inherit" onclick="setMuscleMode('actual')">✅ 實際（訓練紀錄）</button>
+    </div>
+    <div id="muscle-week-row" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="moveMuscleWeek(-1)">‹ 上週</button>
       <span id="muscle-week-label" style="font-size:13px;font-weight:700;color:#f0ece4"></span>
       <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" id="muscle-week-next" onclick="moveMuscleWeek(1)">下週 ›</button>
     </div>
+    <div id="muscle-mode-hint" style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:10px;display:none"></div>
     <div class="card" style="padding:16px;text-align:center">
       <button class="btn btn-ghost" id="muscle-view-btn" style="padding:6px 14px;font-size:12px;margin-bottom:8px" onclick="toggleMuscleView()">🔄 切換背面</button>
       <div id="muscle-svg-wrap"></div>
@@ -2325,34 +2330,30 @@ function getWeekRange(dateStr){
 }
 function dateToStr(d){return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;}
 // 算某一週（用該週內任一天日期代表）每個肌群的容量（主要×1.0＋次要×0.5）跟頻率（命中幾個不同訓練日）
-function computeMuscleStats(anyDateInWeek){
-  const{monday,sunday}=getWeekRange(anyDateInWeek);
-  const sessions=WK.filter(w=>{const d=new Date(w.date+'T00:00:00');return d>=monday&&d<=sunday;});
+// 共用核心：dayGroups = 每個「一天」的動作清單 [[{name,setCount},...], ...]，來源可以是真實訓練紀錄或課表 template
+function buildMuscleStatsCore(dayGroups){
   const raw={};
   MUSCLE_GROUPS.forEach(m=>{raw[m.key]={primarySets:0,secondarySets:0,dayHitPrimary:new Set(),dayHitAny:new Set(),contributors:[]};});
-  const trainedDays=new Set();
-  sessions.forEach(s=>{
-    trainedDays.add(s.date);
-    (s.exercises||[]).forEach(ex=>{
-      const setCount=(ex.sets||[]).length;
+  dayGroups.forEach((dayExercises,dayIdx)=>{
+    dayExercises.forEach(({name,setCount})=>{
       if(!setCount)return;
-      const muscles=getExerciseMuscles(ex.name);
+      const muscles=getExerciseMuscles(name);
       (muscles.primary||[]).forEach(key=>{
         if(!raw[key])return;
         raw[key].primarySets+=setCount;
-        raw[key].dayHitPrimary.add(s.date);
-        raw[key].dayHitAny.add(s.date);
-        raw[key].contributors.push({name:ex.name,sets:setCount,role:'primary'});
+        raw[key].dayHitPrimary.add(dayIdx);
+        raw[key].dayHitAny.add(dayIdx);
+        raw[key].contributors.push({name,sets:setCount,role:'primary'});
       });
       (muscles.secondary||[]).forEach(key=>{
         if(!raw[key])return;
         raw[key].secondarySets+=setCount;
-        raw[key].dayHitAny.add(s.date);
-        raw[key].contributors.push({name:ex.name,sets:setCount,role:'secondary'});
+        raw[key].dayHitAny.add(dayIdx);
+        raw[key].contributors.push({name,sets:setCount,role:'secondary'});
       });
     });
   });
-  const totalTrainedDays=trainedDays.size;
+  const totalTrainedDays=dayGroups.length;
   const muscles={};
   MUSCLE_GROUPS.forEach(m=>{
     const st=raw[m.key];
@@ -2371,7 +2372,26 @@ function computeMuscleStats(anyDateInWeek){
       landmark,statusColor,contributors:st.contributors
     };
   });
-  return{weekStart:monday,weekEnd:sunday,totalTrainedDays,muscles};
+  return{totalTrainedDays,muscles};
+}
+// 實際模式：讀某一週真實訓練紀錄
+function computeMuscleStats(anyDateInWeek){
+  const{monday,sunday}=getWeekRange(anyDateInWeek);
+  const sessions=WK.filter(w=>{const d=new Date(w.date+'T00:00:00');return d>=monday&&d<=sunday;});
+  const byDate={};
+  sessions.forEach(s=>{
+    if(!byDate[s.date])byDate[s.date]=[];
+    (s.exercises||[]).forEach(ex=>byDate[s.date].push({name:ex.name,setCount:(ex.sets||[]).length}));
+  });
+  const core=buildMuscleStatsCore(Object.values(byDate));
+  return{weekStart:monday,weekEnd:sunday,...core};
+}
+// 預覽模式：讀目前課表 template（getCoachCycle()），假設每天都會照排練一次，跟日期無關
+function computePlannedMuscleStats(){
+  const cycle=getCoachCycle();
+  const dayGroups=cycle.map(day=>(day.exercises||[]).map(ex=>({name:ex.name,setCount:parseInt(ex.sets)||0})));
+  const core=buildMuscleStatsCore(dayGroups);
+  return{cycleDays:cycle.length,cycleTitles:cycle.map(d=>d.title),...core};
 }
 
 // ── 人體 SVG 圖：解剖示意輪廓＋色塊 ──
@@ -2382,6 +2402,11 @@ const MUSCLE_STATUS_COLOR={gray:'#2a2a2a',blue:'#60a5fa',green:'#4ade80',orange:
 const BODY_DECORATIVE_COLOR='#3a3a3a';
 let _muscleView='front';
 let _muscleWeekOffset=0; // 0=本週，-1=上週...
+let _muscleMode='preview'; // 'preview'=課表預覽（不看日期）／'actual'=實際訓練紀錄（依週）
+function getCurrentMuscleStats(){
+  if(_muscleMode==='preview')return computePlannedMuscleStats();
+  return computeMuscleStats(weekOffsetDateStr(_muscleWeekOffset));
+}
 const ANTERIOR_POLY=[
   {muscle:'chest',svgPoints:['51.8367347 41.6326531 51.0204082 55.1020408 57.9591837 57.9591837 67.755102 55.5102041 70.6122449 47.3469388 62.0408163 41.6326531 ','29.7959184 46.5306122 31.4285714 55.5102041 40.8163265 57.9591837 48.1632653 55.1020408 47.755102 42.0408163 37.5510204 42.0408163']},
   {muscle:'obliques',svgPoints:['68.5714286 63.2653061 67.3469388 57.1428571 58.7755102 59.5918367 60 64.0816327 60.4081633 83.2653061 65.7142857 78.7755102 66.5306122 69.7959184','33.877551 78.3673469 33.0612245 71.8367347 31.0204082 63.2653061 32.244898 57.1428571 40.8163265 59.1836735 39.1836735 63.2653061 39.1836735 83.6734694']},
@@ -2447,8 +2472,7 @@ function muscleStatusLabel(color){
 }
 function openMuscleDetail(keys){
   if(typeof keys==='string')keys=[keys];
-  const anyDate=weekOffsetDateStr(_muscleWeekOffset);
-  const stats=computeMuscleStats(anyDate);
+  const stats=getCurrentMuscleStats();
   const status=combinedStatus(keys,stats);
   document.getElementById('muscle-detail-title').textContent=keys.map(k=>MUSCLE_LABEL[k]).join('＋');
   document.getElementById('muscle-detail-status').innerHTML=`<span style="color:${MUSCLE_STATUS_COLOR[status]}">${muscleStatusLabel(status)}</span>`;
@@ -2457,7 +2481,7 @@ function openMuscleDetail(keys){
     const lm=st.landmark;
     const list=st.contributors.length
       ?st.contributors.map(c=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="color:#f0ece4">${c.name}</span><span style="color:rgba(240,236,228,.5)">${c.sets}組・${c.role==='primary'?'主要':'次要'}</span></div>`).join('')
-      :'<div style="font-size:12.5px;color:rgba(240,236,228,.35);padding:6px 0">這週還沒有動作練到這個部位</div>';
+      :`<div style="font-size:12.5px;color:rgba(240,236,228,.35);padding:6px 0">${_muscleMode==='preview'?'目前課表沒有動作練到這個部位':'這週還沒有動作練到這個部位'}</div>`;
     return`
     ${keys.length>1?`<div class="sec-title" style="margin-top:14px">${MUSCLE_LABEL[key]}</div>`:''}
     <div style="display:flex;gap:10px;margin:12px 0">
@@ -2475,8 +2499,8 @@ function openMuscleDetail(keys){
       </div>
     </div>
     <div style="font-size:12px;color:rgba(240,236,228,.5);margin-bottom:4px">建議每週組數：MEV ${lm.mev}・理想 ${lm.mav[0]}-${lm.mav[1]}・上限 ${lm.mrv}（研究區間參考值，非個人化精算）</div>
-    <div style="font-size:12px;color:rgba(240,236,228,.5);margin-bottom:12px">頻率：主要動作命中 ${st.primaryDays}/${st.totalTrainedDays||0} 訓練日，含次要則 ${st.anyDays}/${st.totalTrainedDays||0}</div>
-    <div class="sec-title" style="margin-bottom:2px">這週的動作貢獻</div>
+    <div style="font-size:12px;color:rgba(240,236,228,.5);margin-bottom:12px">頻率：主要動作命中 ${st.primaryDays}/${st.totalTrainedDays||0} ${_muscleMode==='preview'?'課表天':'訓練日'}，含次要則 ${st.anyDays}/${st.totalTrainedDays||0}</div>
+    <div class="sec-title" style="margin-bottom:2px">${_muscleMode==='preview'?'課表裡的動作貢獻':'這週的動作貢獻'}</div>
     ${list}`;
   }).join('');
   showSheet('muscle-detail-overlay');
@@ -2518,13 +2542,38 @@ function renderMuscleFreqChart(stats){
     }
   });
 }
+function setMuscleMode(mode){
+  _muscleMode=mode;
+  renderMuscleTab();
+}
 function renderMuscleTab(){
-  const anyDate=weekOffsetDateStr(_muscleWeekOffset);
-  const stats=computeMuscleStats(anyDate);
-  const ws=stats.weekStart,we=stats.weekEnd;
-  const label=`${ws.getMonth()+1}/${ws.getDate()} - ${we.getMonth()+1}/${we.getDate()}${_muscleWeekOffset===0?'（本週）':''}`;
-  const lbl=document.getElementById('muscle-week-label');if(lbl)lbl.textContent=label;
-  const nextBtn=document.getElementById('muscle-week-next');if(nextBtn)nextBtn.disabled=_muscleWeekOffset>=0;
+  const stats=getCurrentMuscleStats();
+  const isPreview=_muscleMode==='preview';
+
+  const previewBtn=document.getElementById('muscle-mode-preview');
+  const actualBtn=document.getElementById('muscle-mode-actual');
+  if(previewBtn&&actualBtn){
+    previewBtn.style.background=isPreview?'#f59e0b':'transparent';
+    previewBtn.style.color=isPreview?'#080808':'rgba(240,236,228,.5)';
+    actualBtn.style.background=!isPreview?'#f59e0b':'transparent';
+    actualBtn.style.color=!isPreview?'#080808':'rgba(240,236,228,.5)';
+  }
+  const weekRow=document.getElementById('muscle-week-row');if(weekRow)weekRow.style.display=isPreview?'none':'flex';
+  const hintEl=document.getElementById('muscle-mode-hint');
+  if(hintEl){
+    if(isPreview){
+      hintEl.style.display='block';
+      hintEl.textContent=`依目前課表計算（${stats.cycleTitles.join('・')}），假設每天都照排練一次，不代表你已經做了`;
+    }else{
+      hintEl.style.display='none';
+    }
+  }
+  if(!isPreview){
+    const ws=stats.weekStart,we=stats.weekEnd;
+    const label=`${ws.getMonth()+1}/${ws.getDate()} - ${we.getMonth()+1}/${we.getDate()}${_muscleWeekOffset===0?'（本週）':''}`;
+    const lbl=document.getElementById('muscle-week-label');if(lbl)lbl.textContent=label;
+    const nextBtn=document.getElementById('muscle-week-next');if(nextBtn)nextBtn.disabled=_muscleWeekOffset>=0;
+  }
   const viewBtn=document.getElementById('muscle-view-btn');if(viewBtn)viewBtn.textContent=_muscleView==='front'?'🔄 切換背面':'🔄 切換正面';
   const svgEl=document.getElementById('muscle-svg-wrap');if(svgEl)svgEl.innerHTML=renderBodySvg(_muscleView,stats);
   const legendEl=document.getElementById('muscle-legend');
