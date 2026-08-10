@@ -2502,11 +2502,18 @@ function renderBodyLabelDiagram(view,stats){
   const groups=getLabelGroups(view).sort((a,b)=>a.anchor.y-b.anchor.y);
   const left=[],right=[];
   groups.forEach((g,i)=>(i%2===0?left:right).push(g));
-  const rowH=46,boxW=108;
+  const gap=10;
   let linesHtml='',labelsHtml='';
+  let maxCursorY=220;
   function renderCol(list,side){
-    list.forEach((g,i)=>{
-      const labelY=28+i*rowH;
+    let cursorY=28;
+    list.forEach(g=>{
+      const multi=g.keys.length>1;
+      const boxW=multi?140:110;
+      const rowH=18;
+      const boxH=24+g.keys.length*rowH;
+      const labelY=cursorY;
+      cursorY+=boxH+gap;
       const boxX=side==='left'?4:340-4-boxW;
       const edgeX=side==='left'?boxX+boxW:boxX;
       const anchorX=g.anchor.x+bodyOffsetX,anchorY=g.anchor.y;
@@ -2516,26 +2523,27 @@ function renderBodyLabelDiagram(view,stats){
       const rows=g.keys.map(k=>{
         const st=stats.muscles[k];
         const ok=achievedCheck(k,stats);
-        const prefix=g.keys.length>1?`${MUSCLE_LABEL[k]}　`:'';
-        return`<div style="display:flex;justify-content:space-between;gap:6px;white-space:nowrap">
-          <span>${prefix}本週 ${st.weightedVolume}／最佳 ${st.landmark.mav[0]}-${st.landmark.mav[1]}</span>
-          <span style="color:${ok?'#4ade80':'#f87171'};font-weight:800">${ok?'✓':'✗'}</span>
+        const text=multi
+          ?`${MUSCLE_LABEL[k]}：${st.weightedVolume}／${st.landmark.mav[0]}-${st.landmark.mav[1]}`
+          :`本週 ${st.weightedVolume}／最佳 ${st.landmark.mav[0]}-${st.landmark.mav[1]}`;
+        return`<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+          <span>${text}</span>
+          <span style="color:${ok?'#4ade80':'#f87171'};font-weight:800;flex-shrink:0">${ok?'✓':'✗'}</span>
         </div>`;
       }).join('');
-      const boxH=22+g.keys.length*15;
       linesHtml+=`<line x1="${edgeX}" y1="${labelY+boxH/2}" x2="${anchorX}" y2="${anchorY}" stroke="${color}" stroke-width="1" stroke-dasharray="2,2"/><circle cx="${anchorX}" cy="${anchorY}" r="2.5" fill="${color}"/>`;
       labelsHtml+=`<foreignObject x="${boxX}" y="${labelY}" width="${boxW}" height="${boxH}">
-        <div xmlns="http://www.w3.org/1999/xhtml" onclick="openMuscleDetail(${JSON.stringify(g.keys).replace(/"/g,'&quot;')})" style="background:${color}1e;border:1px solid ${color};border-radius:7px;padding:4px 7px;font-size:8.5px;line-height:1.5;color:#f0ece4;font-family:inherit;cursor:pointer;box-sizing:border-box">
-          <div style="font-weight:800;color:${color};font-size:9.5px;margin-bottom:1px">${title}</div>
+        <div xmlns="http://www.w3.org/1999/xhtml" onclick="openMuscleDetail(${JSON.stringify(g.keys).replace(/"/g,'&quot;')})" style="background:${color}1e;border:1px solid ${color};border-radius:7px;padding:4px 7px;font-size:8.5px;line-height:1.45;color:#f0ece4;font-family:inherit;cursor:pointer;box-sizing:border-box;overflow:visible">
+          <div style="font-weight:800;color:${color};font-size:9.5px;margin-bottom:1px;white-space:nowrap">${title}</div>
           ${rows}
         </div>
       </foreignObject>`;
     });
+    if(cursorY>maxCursorY)maxCursorY=cursorY;
   }
   renderCol(left,'left');
   renderCol(right,'right');
-  const maxRows=Math.max(left.length,right.length);
-  const svgHeight=Math.max(220,28+maxRows*rowH+40);
+  const svgHeight=maxCursorY+20;
   return`<svg viewBox="0 0 340 ${svgHeight}" style="width:100%;max-width:480px;display:block;margin:0 auto">
     ${linesHtml}
     <g transform="translate(${bodyOffsetX},0)">${bodyPolygonsMarkup(view,stats)}</g>
