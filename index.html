@@ -2457,15 +2457,89 @@ function combinedStatus(keys,stats){
   });
   return worst;
 }
-function renderBodySvg(view,stats){
+function bodyPolygonsMarkup(view,stats){
   const polys=view==='front'?ANTERIOR_POLY:POSTERIOR_POLY;
-  const shapes=polys.map(entry=>{
+  return polys.map(entry=>{
     const myKeys=LIB_MUSCLE_MAP[entry.muscle];
     const color=myKeys?MUSCLE_STATUS_COLOR[combinedStatus(myKeys,stats)]:BODY_DECORATIVE_COLOR;
     const click=myKeys?` style="cursor:pointer" onclick='openMuscleDetail(${JSON.stringify(myKeys)})'`:'';
     return entry.svgPoints.map(pts=>`<polygon points="${pts}" fill="${color}" stroke="#0d0d0d" stroke-width="0.4"${click}/>`).join('');
   }).join('');
-  return`<svg viewBox="0 0 100 220" style="width:100%;max-width:220px;display:block;margin:0 auto">${shapes}</svg>`;
+}
+function renderBodySvg(view,stats){
+  return`<svg viewBox="0 0 100 220" style="width:100%;max-width:220px;display:block;margin:0 auto">${bodyPolygonsMarkup(view,stats)}</svg>`;
+}
+// ── 肌群標註線：每個肌群拉一條線到旁邊的標籤卡，顯示本週組數／最佳組數／是否達標 ──
+function polyCentroid(pointsStr){
+  const nums=pointsStr.trim().split(/\s+/).map(Number);
+  let sx=0,sy=0,n=0;
+  for(let i=0;i<nums.length;i+=2){sx+=nums[i];sy+=nums[i+1];n++;}
+  return{x:sx/n,y:sy/n};
+}
+// 依畫面上實際看得到的解剖區塊算出每個「本App肌群」的代表錨點；lats/midBack 共用同一塊 upper-back，合併成一個標籤
+function getLabelGroups(view){
+  const polys=view==='front'?ANTERIOR_POLY:POSTERIOR_POLY;
+  const viewKeys=new Set(MUSCLE_GROUPS.filter(m=>m.view===view||m.view==='both').map(m=>m.key));
+  const seen=new Set();
+  const groups=[];
+  polys.forEach(entry=>{
+    const keys=(LIB_MUSCLE_MAP[entry.muscle]||[]).filter(k=>viewKeys.has(k));
+    if(!keys.length)return;
+    const gid=keys.join('+');
+    if(seen.has(gid))return;
+    seen.add(gid);
+    groups.push({keys,anchor:polyCentroid(entry.svgPoints[0])});
+  });
+  return groups;
+}
+function achievedCheck(key,stats){
+  const st=stats.muscles[key];
+  return st.weightedVolume>=st.landmark.mev;
+}
+function renderBodyLabelDiagram(view,stats){
+  const bodyOffsetX=120;
+  const groups=getLabelGroups(view).sort((a,b)=>a.anchor.y-b.anchor.y);
+  const left=[],right=[];
+  groups.forEach((g,i)=>(i%2===0?left:right).push(g));
+  const rowH=46,boxW=108;
+  let linesHtml='',labelsHtml='';
+  function renderCol(list,side){
+    list.forEach((g,i)=>{
+      const labelY=28+i*rowH;
+      const boxX=side==='left'?4:340-4-boxW;
+      const edgeX=side==='left'?boxX+boxW:boxX;
+      const anchorX=g.anchor.x+bodyOffsetX,anchorY=g.anchor.y;
+      const status=combinedStatus(g.keys,stats);
+      const color=MUSCLE_STATUS_COLOR[status];
+      const title=g.keys.map(k=>MUSCLE_LABEL[k]).join('＋');
+      const rows=g.keys.map(k=>{
+        const st=stats.muscles[k];
+        const ok=achievedCheck(k,stats);
+        const prefix=g.keys.length>1?`${MUSCLE_LABEL[k]}　`:'';
+        return`<div style="display:flex;justify-content:space-between;gap:6px;white-space:nowrap">
+          <span>${prefix}本週 ${st.weightedVolume}／最佳 ${st.landmark.mav[0]}-${st.landmark.mav[1]}</span>
+          <span style="color:${ok?'#4ade80':'#f87171'};font-weight:800">${ok?'✓':'✗'}</span>
+        </div>`;
+      }).join('');
+      const boxH=22+g.keys.length*15;
+      linesHtml+=`<line x1="${edgeX}" y1="${labelY+boxH/2}" x2="${anchorX}" y2="${anchorY}" stroke="${color}" stroke-width="1" stroke-dasharray="2,2"/><circle cx="${anchorX}" cy="${anchorY}" r="2.5" fill="${color}"/>`;
+      labelsHtml+=`<foreignObject x="${boxX}" y="${labelY}" width="${boxW}" height="${boxH}">
+        <div xmlns="http://www.w3.org/1999/xhtml" onclick="openMuscleDetail(${JSON.stringify(g.keys).replace(/"/g,'&quot;')})" style="background:${color}1e;border:1px solid ${color};border-radius:7px;padding:4px 7px;font-size:8.5px;line-height:1.5;color:#f0ece4;font-family:inherit;cursor:pointer;box-sizing:border-box">
+          <div style="font-weight:800;color:${color};font-size:9.5px;margin-bottom:1px">${title}</div>
+          ${rows}
+        </div>
+      </foreignObject>`;
+    });
+  }
+  renderCol(left,'left');
+  renderCol(right,'right');
+  const maxRows=Math.max(left.length,right.length);
+  const svgHeight=Math.max(220,28+maxRows*rowH+40);
+  return`<svg viewBox="0 0 340 ${svgHeight}" style="width:100%;max-width:480px;display:block;margin:0 auto">
+    ${linesHtml}
+    <g transform="translate(${bodyOffsetX},0)">${bodyPolygonsMarkup(view,stats)}</g>
+    ${labelsHtml}
+  </svg>`;
 }
 function muscleStatusLabel(color){
   return{gray:'尚無資料',blue:'低於最低有效量',green:'理想範圍',orange:'偏高，留意疲勞',red:'超過建議上限'}[color]||'';
@@ -2575,7 +2649,7 @@ function renderMuscleTab(){
     const nextBtn=document.getElementById('muscle-week-next');if(nextBtn)nextBtn.disabled=_muscleWeekOffset>=0;
   }
   const viewBtn=document.getElementById('muscle-view-btn');if(viewBtn)viewBtn.textContent=_muscleView==='front'?'🔄 切換背面':'🔄 切換正面';
-  const svgEl=document.getElementById('muscle-svg-wrap');if(svgEl)svgEl.innerHTML=renderBodySvg(_muscleView,stats);
+  const svgEl=document.getElementById('muscle-svg-wrap');if(svgEl)svgEl.innerHTML=renderBodyLabelDiagram(_muscleView,stats);
   const legendEl=document.getElementById('muscle-legend');
   if(legendEl){
     legendEl.innerHTML=[
