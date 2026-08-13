@@ -599,9 +599,10 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
 
 <!-- TAB: 新增 -->
 <div id="tab-add" class="tab-content" hidden>
-  <div class="page-header"><h1>新增訓練</h1><p>記錄今天的訓練內容</p></div>
+  <div class="page-header"><h1 id="add-page-title">新增訓練</h1><p id="add-page-sub">記錄今天的訓練內容</p></div>
   <div class="form-sec">
     <div id="plan-bar" hidden></div>
+    <div id="coach-summary-note" hidden></div>
     <label class="form-label">訓練日期</label>
     <input type="date" class="form-input" id="new-date" style="margin-bottom:16px" onchange="scheduleDraftSave()">
     <label class="form-label">動作</label>
@@ -613,8 +614,9 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <textarea class="form-input" id="new-note" rows="3" placeholder="例：暖身死蟲2組，快走20分鐘" oninput="scheduleDraftSave()"></textarea>
     <div style="height:16px"></div>
     <button class="btn btn-primary" onclick="saveWorkout()">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>儲存訓練
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><span id="save-workout-label">儲存訓練</span>
     </button>
+    <button class="btn btn-ghost btn-full" id="cancel-edit-btn" style="margin-top:8px" onclick="cancelEditSession()" hidden>取消編輯</button>
   </div>
 </div>
 
@@ -659,6 +661,16 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <button class="btn btn-primary btn-full" onclick="savePhaseEdits()">儲存</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="switchToNextPhase()">🔁 切換到下一期（從今天開始）</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="closePhaseEditor()">取消</button>
+  </div>
+</div>
+
+<!-- 訓練總結 bottom sheet -->
+<div class="create-menu-overlay" id="session-summary-overlay" hidden onclick="if(event.target===this)closeSessionSummary()">
+  <div class="create-menu-sheet">
+    <div id="session-summary-title" style="font-size:18px;font-weight:800;color:#f0ece4;margin-bottom:4px">訓練總結</div>
+    <div style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:14px">這次表現 vs 下次同課表的建議調整</div>
+    <div id="session-summary-body"></div>
+    <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="closeSessionSummary()">知道了</button>
   </div>
 </div>
 
@@ -735,6 +747,12 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
         <div id="weight-list-rows"></div>
       </div>
     </div>
+    <div class="sec-title" style="margin-top:12px">今日攝取</div>
+    <div class="card" id="body-today-card" style="padding:16px"></div>
+    <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="openAddFood()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增飲食
+    </button>
+    <div id="diet-list" style="margin-top:10px"></div>
     <div class="sec-title" style="margin-top:12px">目標設定</div>
     <div class="card" id="body-goals-card" style="padding:16px"></div>
   </div>
@@ -1093,11 +1111,12 @@ async function flushPending(){
     else if(p.type==='exerciseInfo')ok=await apiPost('saveExerciseInfo',{info:p.payload.info});
     else if(p.type==='exerciseRename')ok=await apiPost('renameExercise',{oldName:p.payload.oldName,newName:p.payload.newName});
     else if(p.type==='phaseState')ok=await apiPost('savePhaseState',{state:p.payload.state});
+    else if(p.type==='coachSummaries')ok=await apiPost('saveCoachSummaries',{summaries:p.payload.summaries});
     else if(p.type==='workout')ok=p.payload.op==='delete'?await apiPost('delete',{id:p.key}):await apiPost('add',{workout:p.payload.workout});
     if(ok)clearPending(p.type,p.key);
   }
   if(!getPending().length){
-    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS()]);
+    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS(),syncCoachSummariesFromGAS()]);
     WK=getCache();
     renderOverview();renderFreqProgress();renderCardioProgress();
     if(!document.getElementById('tab-body').hidden)renderBodyTab();
@@ -1580,11 +1599,12 @@ function sessionCard(s,showDel){
   const noteHtml=s.note?`<p style="font-size:12px;color:#6b7280;margin-top:6px;font-style:italic">${s.note}</p>`:'';
   const delBtn=showDel?`<button class="btn-sm" style="margin-top:10px" onclick="delSession('${s.id}',event)">刪除此筆</button>`:'';
   const copyBtn=`<button class="copy-btn" onclick="copySessionToToday('${s.id}',event)">複製為今日訓練</button>`;
+  const editBtn=`<button class="copy-btn" onclick="event.stopPropagation();openEditSession('${s.id}')">✏️ 編輯</button>`;
   return`<div class="session-item" onclick="toggle(this)">
     <div class="session-date">${fmtDate(s.date)}</div>
     <div class="session-title">${s.exercises.length} 個動作</div>
     <div class="session-tags">${tags}${more}</div>
-    <div class="session-detail">${detail}${noteHtml}<div style="margin-top:10px">${copyBtn}${delBtn}</div></div>
+    <div class="session-detail">${detail}${noteHtml}<div style="margin-top:10px">${editBtn}${copyBtn}${delBtn}</div></div>
   </div>`;
 }
 function toggle(el){el.classList.toggle('open');}
@@ -1637,7 +1657,8 @@ function undoDelete(){
 let exIdx=0;
 const DRAFT_KEY='bulk_draft';
 let _draftTimer=null;
-function scheduleDraftSave(){clearTimeout(_draftTimer);_draftTimer=setTimeout(saveDraft,800);}
+let _editingSessionId=null; // 非 null 時代表「新增訓練」畫面是在編輯歷史紀錄，不是記新的一次訓練
+function scheduleDraftSave(){if(_editingSessionId)return;clearTimeout(_draftTimer);_draftTimer=setTimeout(saveDraft,800);}
 function saveDraft(){
   const date=document.getElementById('new-date').value;
   const note=document.getElementById('new-note').value;
@@ -1672,6 +1693,33 @@ function restoreDraft(draft){
     });
   });
 }
+// ── 編輯歷史訓練紀錄：複用新增訓練畫面，存檔時走「同 id 刪除重建」而不是新增 ──
+function openEditSession(id){
+  const s=WK.find(w=>w.id===id);if(!s)return;
+  clearTimeout(_draftTimer);
+  _editingSessionId=id;
+  const summaryNote=document.getElementById('coach-summary-note');if(summaryNote){summaryNote.hidden=true;summaryNote.innerHTML='';}
+  document.getElementById('ex-container').innerHTML='';exIdx=0;
+  restoreDraft(s);
+  updateAddPageEditUI(true);
+  goTab('add',document.querySelector('[data-tab=add]'));
+}
+function cancelEditSession(){
+  _editingSessionId=null;
+  updateAddPageEditUI(false);
+  initAdd();
+  goTab('log',document.querySelector('[data-tab=log]'));
+}
+function updateAddPageEditUI(isEditing){
+  const title=document.getElementById('add-page-title');
+  const sub=document.getElementById('add-page-sub');
+  const saveLabel=document.getElementById('save-workout-label');
+  const cancelBtn=document.getElementById('cancel-edit-btn');
+  if(title)title.textContent=isEditing?'編輯訓練':'新增訓練';
+  if(sub)sub.textContent=isEditing?'修改這筆歷史訓練紀錄':'記錄今天的訓練內容';
+  if(saveLabel)saveLabel.textContent=isEditing?'更新訓練':'儲存訓練';
+  if(cancelBtn)cancelBtn.hidden=!isEditing;
+}
 function toggleSetDone(btn){
   const row=btn.closest('tr');row.classList.toggle('set-done');
   const done=row.classList.contains('set-done');
@@ -1687,6 +1735,7 @@ function toggleSetDone(btn){
   }
 }
 function initAdd(){
+  const summaryNote=document.getElementById('coach-summary-note');if(summaryNote){summaryNote.hidden=true;summaryNote.innerHTML='';}
   const raw=localStorage.getItem(DRAFT_KEY);
   if(raw){
     const draft=JSON.parse(raw);
@@ -1743,7 +1792,7 @@ function addSet(exId){
     <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="w" value="${pw}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))">
         <div class="orm-hint" data-1rm></div></td>
     <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="r" value="${pr}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))"></td>
-    <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="rpe" style="font-size:13px" oninput="scheduleDraftSave()"></td>
+    <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="rpe" style="font-size:13px" oninput="this.value=this.value.replace(/[^0-9]/g,'');scheduleDraftSave()"></td>
     <td><button class="check-btn" onclick="toggleSetDone(this)">○</button></td>
     <td><button style="background:none;border:none;color:#d1d5db;font-size:15px;padding:2px 4px;cursor:pointer" onclick="rmSet(this)">✕</button></td>`;
   tb.appendChild(tr);
@@ -1823,6 +1872,8 @@ function pickEx(item,exId){
 function saveWorkout(){
   const date=document.getElementById('new-date').value;
   if(!date){showToast('請選擇日期');return;}
+  const editingId=_editingSessionId;
+  const origSession=editingId?WK.find(w=>w.id===editingId):null;
   const blocks=[...document.getElementById('ex-container').querySelectorAll('.ex-block')];
   const exercises=[];
   for(const blk of blocks){
@@ -1844,16 +1895,42 @@ function saveWorkout(){
       const exObj={id:uid(),name,sets};
       // 教練課表流程：把當天處方（rx）掛上，之後教練 Tab 對照「課表設定 vs 實際執行」用
       if(_coachActiveDay!==null&&_coachRxByName[name])exObj.rx=_coachRxByName[name];
+      // 編輯歷史紀錄：延用原本這個動作已經存在的處方，不要因為編輯就把 rx 弄丟
+      else if(origSession){const origEx=origSession.exercises.find(e=>e.name===name);if(origEx&&origEx.rx)exObj.rx=origEx.rx;}
       exercises.push(exObj);
     }
   }
   if(!exercises.length){showToast('請至少填入一個動作');return;}
   const note=document.getElementById('new-note').value.trim();
+
+  if(editingId){
+    // ── 編輯模式：同 id 覆蓋，不觸發慶祝動畫／教練循環推進 ──
+    const session={id:editingId,date,exercises,note};
+    const idx=WK.findIndex(w=>w.id===editingId);
+    if(idx>=0)WK[idx]=session;else WK.push(session);
+    setCache(WK);
+    _editingSessionId=null;
+    updateAddPageEditUI(false);
+    showToast('✅ 已更新訓練紀錄');
+    setTimeout(()=>{initAdd();goTab('log',document.querySelector('[data-tab=log]'));},400);
+    apiDel(editingId).then(()=>apiAdd(session)).then(()=>{if(getGASUrl())showToast('✅ 已同步到 Google Sheets！');});
+    return;
+  }
+
   const session={id:uid(),date,exercises,note};
+  const summaryDayIdx=_coachActiveDay;
   // Optimistic update
   WK.push(session);setCache(WK);clearDraft();
   showCelebration(session);
-  setTimeout(()=>{initAdd();goTab('log',document.querySelector('[data-tab=log]'));},700);
+  let sessionSummary=null;
+  if(summaryDayIdx!==null){
+    sessionSummary=computeSessionSummary(session,summaryDayIdx);
+    if(sessionSummary)saveDaySummary(summaryDayIdx,sessionSummary);
+  }
+  setTimeout(()=>{
+    initAdd();goTab('log',document.querySelector('[data-tab=log]'));
+    if(sessionSummary)openSessionSummary(sessionSummary);
+  },700);
   // Background sync
   apiAdd(session).then(()=>{if(getGASUrl())showToast('✅ 已同步到 Google Sheets！');});
   // 若這次是從教練循環「開始這天訓練」進來，推進循環進度到下一天
@@ -3294,6 +3371,93 @@ function coachSugText(ex,sug){
   return`${Math.abs(sug.w)}kg×${sug.r||'—'}${sug.rpe?` @RPE${sug.rpe}`:''}`;
 }
 
+// ── 訓練總結：這次表現 vs 下次同一天課表的建議調整（存下來，下次開同天課表時顯示；存檔當下也彈一次）──
+const COACH_SUMMARIES_KEY='bulk_coach_summaries_v1';
+function getCoachDaySummaries(){
+  try{return JSON.parse(localStorage.getItem(COACH_SUMMARIES_KEY)||'{}');}catch(e){return{};}
+}
+function saveCoachDaySummariesData(obj){localStorage.setItem(COACH_SUMMARIES_KEY,JSON.stringify(obj));}
+async function apiSaveCoachSummaries(summaries){
+  const ok=await apiPost('saveCoachSummaries',{summaries});
+  if(ok)clearPending('coachSummaries','summaries');
+  else queuePending('coachSummaries','summaries',{summaries});
+}
+async function syncCoachSummariesFromGAS(){
+  const url=getGASUrl();if(!url)return;
+  if(pendingKeys('coachSummaries').size)return;
+  try{
+    const res=await fetch(url+'?action=getCoachSummaries');
+    const json=await res.json();
+    if(json.ok&&json.summaries)saveCoachDaySummariesData(json.summaries);
+  }catch(e){}
+}
+function saveDaySummary(dayIdx,summary){
+  const all=getCoachDaySummaries();
+  all[dayIdx]=summary;
+  saveCoachDaySummariesData(all);
+  apiSaveCoachSummaries(all);
+}
+// 逐動作判斷是否「連續卡關」：近兩次紀錄都沒達到建議次數、或RPE都偏高
+function isExerciseStuck(exDef){
+  if(exDef.unit==='bodyweight'||exDef.cat==='輔助')return false;
+  const recent=recentRecordsOf(exDef.name,2);
+  if(recent.length<2)return false;
+  const stuckOnce=r=>{
+    const sets=(r.sets||[]).filter(s=>s.w!=null);
+    if(!sets.length)return false;
+    const maxW=Math.max(...sets.map(s=>s.w));
+    const topReps=Math.max(...sets.filter(s=>s.w===maxW).map(s=>s.r||0));
+    const rpes=sets.map(s=>s.rpe).filter(v=>v!=null);
+    const maxRpe=rpes.length?Math.max(...rpes):null;
+    return topReps<exDef.rep||(maxRpe!==null&&maxRpe>exDef.rpe);
+  };
+  return stuckOnce(recent[0])&&stuckOnce(recent[1]);
+}
+// 存檔後呼叫：session 已經在 WK 裡，所以 computeCoachSuggestion 會自然把這次當「上次紀錄」算出下次建議
+function computeSessionSummary(session,dayIdx){
+  const day=getCoachCycle()[dayIdx];if(!day)return null;
+  const items=day.exercises.map(exDef=>{
+    const actualEx=session.exercises.find(e=>e.name===exDef.name);
+    const actualText=actualEx?fmtSets(actualEx.sets):'（這次沒做這個動作）';
+    const sug=computeCoachSuggestion(exDef);
+    return{
+      name:exDef.name,cat:exDef.cat,
+      actualText,nextText:coachSugText(exDef,sug),note:sug.note,
+      stuck:isExerciseStuck(exDef)
+    };
+  });
+  return{dayIdx,dayTitle:day.title,date:session.date,items};
+}
+function renderSessionSummaryItems(summary){
+  return summary.items.map(it=>{
+    const cc=catColor(it.cat);
+    return`<div style="padding:10px;margin-bottom:8px;border-left:3px solid ${cc};background:${cc}14;border-radius:6px">
+      <div style="font-size:13px;font-weight:700;color:#f0ece4">${it.name}${it.stuck?' ⚠️':''}</div>
+      <div style="font-size:12px;color:rgba(240,236,228,.5);margin-top:4px">這次：${it.actualText}</div>
+      <div style="font-size:12px;color:#f59e0b;margin-top:2px">下次：${it.nextText}・${it.note}</div>
+      ${it.stuck?'<div style="font-size:11px;color:#f87171;margin-top:4px">⚠️ 已連續2次卡在同重量，考慮降10%重新爬，或換一個動作</div>':''}
+    </div>`;
+  }).join('');
+}
+function openSessionSummary(summary){
+  if(!summary)return;
+  const titleEl=document.getElementById('session-summary-title');if(titleEl)titleEl.textContent=`${summary.dayTitle} 訓練總結`;
+  const bodyEl=document.getElementById('session-summary-body');if(bodyEl)bodyEl.innerHTML=renderSessionSummaryItems(summary);
+  showSheet('session-summary-overlay');
+}
+function closeSessionSummary(){hideSheet('session-summary-overlay');}
+// 開始這天課表時，把上次的總結精簡顯示在動作清單上方
+function renderCoachSummaryNote(dayIdx){
+  const el=document.getElementById('coach-summary-note');if(!el)return;
+  const summary=getCoachDaySummaries()[dayIdx];
+  if(!summary){el.hidden=true;el.innerHTML='';return;}
+  const stuckCount=summary.items.filter(it=>it.stuck).length;
+  el.hidden=false;
+  el.innerHTML=`<div class="draft-bar" style="cursor:pointer" onclick="openSessionSummary(${JSON.stringify(summary).replace(/"/g,'&quot;')})">
+    📋 上次（${fmtDate(summary.date)}）總結：${summary.items.length}個動作${stuckCount?`，${stuckCount}個卡關`:''}，點看下次建議
+  </div>`;
+}
+
 // ── 教練循環：開始這天訓練（帶入動作、預填建議重量/次數）──
 let _coachActiveDay=null;
 let _coachRxByName={}; // 這次課表的處方，存檔時掛到訓練紀錄的 ex.rx
@@ -3303,6 +3467,7 @@ function startCoachDay(dayIdx){
   const day=getCoachCycle()[dayIdx];
   goTab('add',document.querySelector('[data-tab=add]'));
   setTimeout(()=>{
+    renderCoachSummaryNote(dayIdx);
     document.getElementById('new-date').value=todayStr();
     document.getElementById('new-note').value='';
     document.getElementById('ex-container').innerHTML='';exIdx=0;
@@ -4195,6 +4360,7 @@ if(getGASUrl()){
     syncExerciseDBFromGAS();
     syncExerciseInfoFromGAS();
     syncPhaseStateFromGAS().then(renderPhaseCard);
+    syncCoachSummariesFromGAS();
   });
 }
 // 連線恢復時自動把離線期間累積的變更補同步回 Google Sheet
