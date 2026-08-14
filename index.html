@@ -808,6 +808,13 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <button class="btn btn-ghost" style="padding:8px 14px;font-size:12px;flex-shrink:0;margin-top:2px" onclick="openCoachCycleEditor()">✏️ 編輯課表</button>
   </div>
   <div class="section" style="padding-top:14px">
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+      <button onclick="toggleWeekPlanList()" id="week-plan-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:none;border:none;color:#f0ece4;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
+        <span id="week-plan-summary">10週規劃</span>
+        <span id="week-plan-arrow" style="color:rgba(240,236,228,.4);font-size:11px;transition:transform .2s">▼</span>
+      </button>
+      <div id="week-plan-body" hidden style="padding:0 16px 14px"></div>
+    </div>
     <div class="sec-title">依週檢視</div>
     <div id="coach-week-pills" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px"></div>
     <div id="coach-week-body" style="margin-bottom:20px"></div>
@@ -2858,28 +2865,28 @@ async function saveExerciseRename(){
 // 處方一律固定值：rep=建議次數（次數範圍的上限，達標才加重）、rpe=建議RPE（範圍上限，超過就維持重量不加）
 // w 刻意留空：起始重量都只是概算，第一次訓練現場測，之後交給 computeCoachSuggestion() 從實際紀錄自動算
 const DEFAULT_COACH_CYCLE=[
-  {title:'腿部主導（含手臂加量）', exercises:[
-    {name:'腿推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約160kg概算，現場校正；離心用正常速度控制，不要刻意放慢，力氣留給重量/次數'},
-    {name:'保加利亞分腿蹲', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'單邊次數，自由重量例外項，啞鈴現場測'},
-    {name:'羅馬尼亞硬舉', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'後鏈/膕繩肌，取代原本的腿彎舉機，自由重量例外項；下放時感受腿後拉長，這裡的離心是主要刺激來源'},
-    {name:'槌式彎舉', cat:'輔助', sets:'4', rep:12, rpe:8, inc:2.5, unit:'kg', note:'二頭加量，2026-08加到4組補二頭容量；離心可放慢到2-3秒加強張力時間'},
-    {name:'過頭三頭延伸', cat:'輔助', sets:'4', rep:12, rpe:8, inc:2.5, unit:'kg', note:'三頭加量，2026-08加到4組；離心可放慢到2-3秒，伸展位置停一下感受收縮'},
-    {name:'死蟲', cat:'核心', sets:'3', rep:10, unit:'bodyweight', note:'2026-08新增，下背敏感的預防性準備，動作要慢求控制不是求快，每側都做'}
-  ]},
   {title:'推系（胸/肩/三頭）', exercises:[
     {name:'躺姿分邊胸推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:2.5, unit:'kg', note:'主項，2026-08從坐姿胸推機換成這個——機械但躺姿角度更接近臥推，為將來轉肌力期做動作模式銜接；分邊獨立但兩手動作要同步，不要讓單邊代償；起始約30kg/邊(依8/12實際數字)，現場校正；離心用正常速度控制，不要刻意放慢，力氣留給重量/次數'},
-    {name:'肩推機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約胸推機50-60%起測，排第2位趁新鮮練，避免被兩個胸推動作榨乾'},
-    {name:'上斜胸推機', cat:'輔助', sets:'4', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約胸推機70-80%起測，2026-08加到4組補胸容量'},
-    {name:'側平舉', cat:'輔助', sets:'4', rep:15, rpe:8, inc:1, unit:'kg', note:'練肩寬/中束，壓推動作練不到的角度，2026-08加到4組補肩容量；離心可放慢到2-3秒'},
-    {name:'蝴蝶機夾胸', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'2026-08新增，孤立動作補胸容量，不額外增加壓推類疲勞；離心可放慢到2-3秒，張開到底停一下感受胸部伸展'},
-    {name:'三頭下壓', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'繩索；離心可放慢到2-3秒'}
+    {name:'肩推機', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08從輔助改主項目——多關節複合動作，該有自動加重追蹤；排第2位趁新鮮練，避免被兩個胸推動作榨乾'},
+    {name:'上斜胸推機', cat:'主項目', sets:'4', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08從輔助改主項目——多關節複合動作，該有自動加重追蹤；約胸推機70-80%起測'},
+    {name:'側平舉', cat:'輔助', sets:'4', rep:15, rpe:8, inc:1, unit:'kg', note:'單關節孤立動作，維持輔助（RPE參考、不自動追蹤重量）；練肩寬/中束，壓推動作練不到的角度；離心可放慢到2-3秒'},
+    {name:'蝴蝶機夾胸', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；補胸容量，不額外增加壓推類疲勞；離心可放慢到2-3秒，張開到底停一下感受胸部伸展'},
+    {name:'三頭下壓', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；繩索；離心可放慢到2-3秒'}
   ]},
   {title:'拉系（背/二頭）', exercises:[
     {name:'坐姿機械寬握划船', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約80-90kg概算，現場校正。抓高位、略寬握，手肘外展往鎖骨方向拉，練中背/菱形肌，跟下拉機做出區隔；離心用正常速度控制，不要刻意放慢，力氣留給重量/次數'},
-    {name:'坐姿纜繩夾背划船', cat:'輔助', sets:'4', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08改用纜繩+V字窄握把（機械划船機握把通常固定換不了），拉高位不拉下腹，加強中斜方/菱形肌厚度，不是背闊寬度'},
-    {name:'滑輪下拉機', cat:'輔助', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'約划船機80%起測'},
-    {name:'反向蝴蝶機', cat:'輔助', sets:'4', rep:15, rpe:8, inc:2.5, unit:'kg', note:'蝴蝶機面對機器坐，練後三角/上背，比臉拉穩定好控制，2026-08加到4組；離心可放慢到2-3秒'},
-    {name:'二頭彎舉機', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'離心可放慢到2-3秒'}
+    {name:'坐姿纜繩夾背划船', cat:'主項目', sets:'4', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08從輔助改主項目——多關節複合動作，該有自動加重追蹤；纜繩+V字窄握把，拉高位不拉下腹，加強中斜方/菱形肌厚度，不是背闊寬度'},
+    {name:'滑輪下拉機', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08從輔助改主項目——多關節複合動作，該有自動加重追蹤；約划船機80%起測'},
+    {name:'反向蝴蝶機', cat:'輔助', sets:'4', rep:15, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；面對機器坐，練後三角/上背，比臉拉穩定好控制；離心可放慢到2-3秒'},
+    {name:'二頭彎舉機', cat:'輔助', sets:'3', rep:15, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；離心可放慢到2-3秒'}
+  ]},
+  {title:'腿部主導（含手臂加量）', exercises:[
+    {name:'腿推機', cat:'主項目', sets:'4', rep:8, rpe:8, inc:5, unit:'kg', note:'主項，起始約160kg概算，現場校正；離心用正常速度控制，不要刻意放慢，力氣留給重量/次數'},
+    {name:'保加利亞分腿蹲', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'單邊次數，自由重量例外項，啞鈴現場測'},
+    {name:'羅馬尼亞硬舉', cat:'主項目', sets:'3', rep:10, rpe:8, inc:2.5, unit:'kg', note:'2026-08從輔助改主項目——髖關節+膝關節複合動作，該有自動加重追蹤；後鏈/膕繩肌，自由重量例外項；下放時感受腿後拉長，這裡的離心是主要刺激來源'},
+    {name:'槌式彎舉', cat:'輔助', sets:'4', rep:12, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；二頭加量；離心可放慢到2-3秒加強張力時間'},
+    {name:'過頭三頭延伸', cat:'輔助', sets:'4', rep:12, rpe:8, inc:2.5, unit:'kg', note:'單關節孤立動作，維持輔助；三頭加量；離心可放慢到2-3秒，伸展位置停一下感受收縮'},
+    {name:'死蟲', cat:'核心', sets:'3', rep:10, unit:'bodyweight', note:'下背敏感的預防性準備，動作要慢求控制不是求快，每側都做'}
   ]}
 ];
 
@@ -3547,6 +3554,49 @@ function weekRangeLabel(weekNum){
   const fmt=d=>`${d.getMonth()+1}/${d.getDate()}`;
   return `${fmt(start)}-${fmt(end)}`;
 }
+// ── 10週規劃參考（增肌期第一循環）：每週的主要目標跟預期值，純參考資料不影響課表計算 ──
+const WEEK_PLAN=[
+  {week:1,phase:'累積期1',goal:'建立基準，抓穩每個動作的操作重量',expect:'照抓 RPE8，數字會偏保守很正常，這是第一次沒有歷史資料可以校正'},
+  {week:2,phase:'累積期1',goal:'依上週實際數據開始漸進',expect:'達標動作加重、未達標維持，開始看得出真實爬升軌跡'},
+  {week:3,phase:'累積期1',goal:'持續漸進',expect:'留意單關節孤立動作（側平舉/反向蝴蝶機等）的 RPE 數字可能還不穩，多關節動作的數字比較可信'},
+  {week:4,phase:'累積期1（收尾）',goal:'維持強度衝刺到本輪高點',expect:'留意整體疲勞累積訊號（RPE整體偏高、睡眠更差），準備進減量週'},
+  {week:5,phase:'減量週',goal:'系統性卸載，讓身體恢復',expect:'全部動作組數砍到約55-60%，RPE上限降到6-7，重量不用刻意降'},
+  {week:6,phase:'累積期2',goal:'從減量後接續漸進',expect:'延續 Week4 的進度往上加，不是從 Week1 基準重新算'},
+  {week:7,phase:'累積期2',goal:'持續漸進',expect:''},
+  {week:8,phase:'累積期2',goal:'持續漸進，留意連續卡關',expect:'連續2次卡在同重量就考慮降10%重爬或換動作，不要死撐'},
+  {week:9,phase:'累積期2（收尾）',goal:'維持強度衝刺到本輪高點',expect:'準備進收斂週'},
+  {week:10,phase:'收斂＋重新熟悉自由重量',goal:'訓練量收斂，抓回深蹲/臥推/硬舉動作感',expect:'前3-4天訓練量再收斂一次；接著3-5天做3x5 @RPE7技術練習；最後抓一組3-5下 @RPE9-10頂重組估算1RM（不做真1RM），依結果決定是否進肌力期'}
+];
+function toggleWeekPlanList(){
+  const body=document.getElementById('week-plan-body');
+  const arrow=document.getElementById('week-plan-arrow');
+  if(!body)return;
+  const willShow=body.hidden;
+  body.hidden=!willShow;
+  if(arrow)arrow.style.transform=willShow?'rotate(180deg)':'rotate(0deg)';
+  if(willShow&&!body.innerHTML)renderWeekPlan();
+}
+function renderWeekPlan(){
+  const curWeek=weekNumberOf(todayStr());
+  const summaryEl=document.getElementById('week-plan-summary');
+  if(summaryEl){
+    const cur=WEEK_PLAN.find(w=>w.week===curWeek);
+    summaryEl.textContent=cur?`10週規劃 · 現在 Week${curWeek}／${cur.phase}`:'10週規劃';
+  }
+  const body=document.getElementById('week-plan-body');if(!body)return;
+  body.innerHTML=WEEK_PLAN.map(w=>{
+    const isCur=w.week===curWeek;
+    return`<div style="padding:10px 0;border-top:1px solid #1f1f1f;${isCur?'background:rgba(245,158,11,.08);margin:0 -16px;padding-left:16px;padding-right:16px':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+        <span style="font-size:11px;font-weight:800;color:${isCur?'#f59e0b':'#f0ece4'};background:${isCur?'rgba(245,158,11,.18)':'#1f1f1f'};padding:1px 8px;border-radius:20px">Week${w.week}</span>
+        <span style="font-size:11.5px;color:rgba(240,236,228,.5)">${w.phase}</span>
+        ${isCur?'<span style="font-size:10px;color:#f59e0b;font-weight:700">・現在</span>':''}
+      </div>
+      <div style="font-size:12.5px;color:#f0ece4;font-weight:600">${w.goal}</div>
+      ${w.expect?`<div style="font-size:11.5px;color:rgba(240,236,228,.45);margin-top:2px">${w.expect}</div>`:''}
+    </div>`;
+  }).join('');
+}
 let _coachSelectedWeek=null;
 function renderCoachWeekPills(){
   const el=document.getElementById('coach-week-pills');if(!el)return;
@@ -3588,6 +3638,7 @@ function renderCoachWeekBody(){
 
 // ── 教練 Tab：處方 vs 實際執行 vs 下次建議（排下一輪課表用）──
 function renderCoachTab(){
+  renderWeekPlan();
   renderCoachWeekPills();
   renderCoachWeekBody();
   const el=document.getElementById('coach-tab-body');if(!el)return;
