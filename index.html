@@ -3044,7 +3044,7 @@ function renderCoachCycleOverview(){
       const rxTxt=coachSugText(ex,sug);
       return`<div class="menu-chk-row" style="cursor:pointer;border-left:3px solid ${cc};background:${cc}14;border-radius:6px;padding-left:8px" onclick="openExDemo('${safeN}')">
         <span class="menu-chk-name">${ex.name}<span style="font-size:10px;font-weight:700;color:${cc};margin-left:6px;background:${cc}22;padding:1px 6px;border-radius:20px">${ex.cat}</span></span>
-        <span class="menu-chk-meta" style="color:#f59e0b;font-weight:700">${rxTxt}</span>
+        <span class="menu-chk-meta" style="color:${cc};font-weight:700">${rxTxt}</span>
       </div>`;
     }).join('');
     const isNext=i===nextDayIdx;
@@ -3515,7 +3515,7 @@ function renderCoachCard(){
     return`<div style="padding:9px 10px;margin-top:8px;border-left:3px solid ${cc};background:${cc}14;border-radius:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <div style="font-size:13px;font-weight:700;color:#f0ece4">${ex.name}<span style="font-size:10px;font-weight:700;color:${cc};margin-left:6px;background:${cc}22;padding:1px 6px;border-radius:20px">${ex.cat}</span></div>
-        <div style="font-size:13px;color:#f59e0b;font-weight:800;white-space:nowrap">${rxTxt}</div>
+        <div style="font-size:13px;color:${cc};font-weight:800;white-space:nowrap">${rxTxt}</div>
       </div>
       <div style="font-size:11.5px;color:rgba(240,236,228,.5);margin-top:3px">${sug.note}・${lastTxt}</div>
     </div>`;
@@ -3533,7 +3533,7 @@ function renderCoachCard(){
 // ── 教練 Tab：依週檢視（純顯示用，不影響課表編輯邏輯）──
 // Week 1 = 2026-07-13（一）～07-19（日），之後每7天算一週；純粹把已發生的訓練紀錄分組呈現，
 // 跟「課表現況」互不影響——編輯課表永遠是套用到「現在起之後」，不分週。
-const COACH_WEEK1_MONDAY='2026-07-13';
+const COACH_WEEK1_MONDAY='2026-08-10';
 function weekNumberOf(dateStr){
   const anchor=new Date(COACH_WEEK1_MONDAY+'T00:00:00');
   const d=new Date(dateStr+'T00:00:00');
@@ -3630,10 +3630,10 @@ function renderCoachTab(){
         </div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px">
           <span style="font-size:9.5px;color:rgba(240,236,228,.35);text-transform:uppercase;letter-spacing:.4px">${leadLabel}</span>
-          <span style="font-size:22px;font-weight:800;color:${sug.isAssist?'#f0ece4':'#f59e0b'}">${leadBig}</span>
+          <span style="font-size:22px;font-weight:800;color:${sug.isAssist?'#f0ece4':cc}">${leadBig}</span>
         </div>
         <div style="font-size:11px;color:rgba(240,236,228,.55);margin-top:1px">${lastDetail}</div>
-        <div style="font-size:11.5px;color:#f59e0b;font-weight:700;margin-top:6px;padding-top:6px;border-top:1px dashed #2a2a2a">${sug.isAssist?'目標':'建議'}：${nextDetail}${sug.note?`・${sug.note}`:''}</div>
+        <div style="font-size:11.5px;color:${cc};font-weight:700;margin-top:6px;padding-top:6px;border-top:1px dashed #2a2a2a">${sug.isAssist?'目標':'建議'}：${nextDetail}${sug.note?`・${sug.note}`:''}</div>
       </div>`;
     }).join('');
     return`<div class="card" style="padding:14px;margin-bottom:14px">
