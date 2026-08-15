@@ -4251,7 +4251,7 @@ function handleFoodPhoto(input){
       const cfg2=getCfg();
       const geminiKey=cfg2.geminiKey||'';
       if(!geminiKey){showToast('請在設定中填入 Gemini API Key');if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}return;}
-      const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+geminiKey;
+      const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
       fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           contents:[{parts:[
@@ -4438,6 +4438,31 @@ if(getGASUrl()){
 }
 // 連線恢復時自動把離線期間累積的變更補同步回 Google Sheet
 window.addEventListener('online',()=>{if(getGASUrl())flushPending();});
+
+// ── 新版本偵測（給「加入主畫面」的 iOS 網頁 App 用）──
+// 加到主畫面的網頁 App 不是每次打開都會重新抓最新檔案，可能停在舊版本很多天
+// 這裡在每次從背景切回前景時，用不吃快取的方式檢查伺服器上的檔案是否已更新，有更新就顯示提示條讓使用者自己點擊重新整理（不強制，避免蓋掉正在填的表單）
+let _appVersionTag=null;
+async function checkForAppUpdate(){
+  try{
+    const res=await fetch(location.pathname+'?_chk='+Date.now(),{cache:'no-store'});
+    const tag=res.headers.get('etag')||res.headers.get('last-modified');
+    if(!tag)return;
+    if(_appVersionTag===null){_appVersionTag=tag;return;}
+    if(tag!==_appVersionTag)showAppUpdateBanner();
+  }catch(e){}
+}
+function showAppUpdateBanner(){
+  if(document.getElementById('app-update-banner'))return;
+  const b=document.createElement('div');
+  b.id='app-update-banner';
+  b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#080808;text-align:center;padding:calc(10px + env(safe-area-inset-top,0px)) 10px 10px;font-size:13px;font-weight:800;cursor:pointer';
+  b.textContent='🔄 有新版本可用，點此更新';
+  b.onclick=()=>{location.href=location.pathname+'?_v='+Date.now();};
+  document.body.appendChild(b);
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkForAppUpdate();});
+checkForAppUpdate();
 </script>
 </body>
 </html>
