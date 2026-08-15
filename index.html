@@ -791,11 +791,12 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
         <input class="form-input" type="number" id="food-kcal" placeholder="—" inputmode="decimal">
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:18px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
       <div><label class="form-label">蛋白質(g)</label><input class="form-input" type="number" id="food-protein" placeholder="—" inputmode="decimal"></div>
       <div><label class="form-label">碳水(g)</label><input class="form-input" type="number" id="food-carbs" placeholder="—" inputmode="decimal"></div>
       <div><label class="form-label">脂肪(g)</label><input class="form-input" type="number" id="food-fat" placeholder="—" inputmode="decimal"></div>
     </div>
+    <div id="food-breakdown" style="display:none;font-size:11.5px;color:rgba(240,236,228,.45);line-height:1.7;margin-bottom:14px;padding:10px 12px;background:#141414;border-radius:10px"></div>
     <button id="food-save-btn" class="btn btn-primary" onclick="saveFoodEntry()">儲存飲食</button>
     <button class="btn btn-ghost btn-full" onclick="closeAddFood()" style="margin-top:8px">取消</button>
   </div>
@@ -4191,6 +4192,7 @@ function openAddFood(editIdx){
   document.getElementById('food-portion').value='100';
   document.getElementById('food-photo-preview').innerHTML='<div style="width:54px;height:54px;background:#161616;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;color:rgba(240,236,228,.2)">📷</div>';
   document.getElementById('food-dd').hidden=true;
+  const bdEl0=document.getElementById('food-breakdown');if(bdEl0){bdEl0.style.display='none';bdEl0.innerHTML='';}
   const titleEl=document.getElementById('food-sheet-title');
   const saveBtnEl=document.getElementById('food-save-btn');
   if(_editFoodIdx>=0){
@@ -4256,30 +4258,46 @@ function handleFoodPhoto(input){
         body:JSON.stringify({
           contents:[{parts:[
             {inline_data:{mime_type:'image/jpeg',data:b64}},
-            {text:'這是一張食物照片。請估算「照片中這整份食物」（不是每100g）的總重量與總營養成分，以JSON格式回覆，只需JSON不要其他文字：{"name":"食物名稱（中文）","grams":整份食物總重量估計(公克,整數),"kcal":這整份的總熱量整數,"protein":這整份的總蛋白質g整數,"carbs":這整份的總碳水g整數,"fat":這整份的總脂肪g整數}'}
+            {text:'這是一張食物照片。請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），針對「照片中這整份」（不是每100g）逐項估算重量與營養素，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}'}
           ]}],
           generationConfig:{thinkingConfig:{thinkingBudget:0}}
         })
       }).then(r=>r.json()).then(data=>{
         if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
-        if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
         ['food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{const el=document.getElementById(id);if(el)el.placeholder='—';});
-        // 支援 Gemini 直接回應格式
+        // 支援 Gemini 直接回應格式（用第一個 { 到最後一個 } 擷取，避免 items 陣列內的巢狀 {} 被非貪婪比對截斷）
         let parsed=null;
         if(data.candidates&&data.candidates[0]){
           const parts=data.candidates[0].content.parts;
           const tp=parts.find(p=>!p.thought&&p.text)||parts[0];
-          const m=(tp.text||'').match(/\{[\s\S]*?\}/);
-          if(m){try{parsed=JSON.parse(m[0]);}catch(e){}}
+          let raw=(tp.text||'').trim().replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+          const first=raw.indexOf('{'),last=raw.lastIndexOf('}');
+          if(first>=0&&last>first){try{parsed=JSON.parse(raw.slice(first,last+1));}catch(e){}}
         } else if(data.ok&&data.name){
           parsed=data;
         }
-        if(parsed){
+        const items=parsed&&Array.isArray(parsed.items)?parsed.items:null;
+        const bdEl=document.getElementById('food-breakdown');
+        if(parsed&&items&&items.length){
+          const sum=(k)=>items.reduce((a,it)=>a+(parseFloat(it[k])||0),0);
+          if(nameInp)nameInp.value=parsed.name||items.map(it=>it.item).join('、');
+          const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=Math.round(v);};
+          set('food-kcal',sum('kcal'));set('food-protein',sum('protein'));
+          set('food-carbs',sum('carbs'));set('food-fat',sum('fat'));
+          set('food-portion',sum('grams'));
+          if(bdEl){
+            bdEl.style.display='block';
+            bdEl.innerHTML='逐項估算：'+items.map(it=>`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${Math.round(it.protein)||0}・碳水${Math.round(it.carbs)||0}・脂肪${Math.round(it.fat)||0}）`).join('<br>');
+          }
+          showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI逐項估算，僅供參考，誤差可能±20-30%）',4500);
+        } else if(parsed&&parsed.kcal!=null){
+          // 相容舊格式（沒有 items 陣列時退回單一總量）
           if(nameInp)nameInp.value=parsed.name||'';
           const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
           set('food-kcal',parsed.kcal);set('food-protein',parsed.protein);
           set('food-carbs',parsed.carbs);set('food-fat',parsed.fat);
           if(parsed.grams)set('food-portion',Math.round(parsed.grams));
+          if(bdEl)bdEl.style.display='none';
           showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI估算，僅供參考，誤差可能±20-30%）',4000);
         } else {
           const reason=data&&data.error?(data.error.message||JSON.stringify(data.error)):'回應格式異常，請重試';
