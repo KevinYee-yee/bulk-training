@@ -1293,10 +1293,10 @@ function maxW(ex){
   const pos=ws.filter(v=>v>0);
   return pos.length?Math.max(...pos):Math.max(...ws);
 }
-function showToast(msg){
+function showToast(msg,duration){
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2200);
+  setTimeout(()=>t.classList.remove('show'),duration||2200);
 }
 
 // ── TAB ──
@@ -4264,11 +4264,14 @@ function handleFoodPhoto(input){
           if(parsed.portion){const pl=document.getElementById('food-portion');if(pl)pl.placeholder=parsed.portion;}
           showToast('✅ 辨識完成：'+(parsed.name||'食物'));
         } else {
-          showToast('⚠️ 辨識失敗，請手動輸入');
+          const reason=data&&data.error?(data.error.message||JSON.stringify(data.error)):'回應格式異常，請重試';
+          console.error('Gemini食物辨識失敗',data);
+          showToast('⚠️ 辨識失敗：'+reason,6000);
         }
-      }).catch(()=>{
+      }).catch(err=>{
         if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
-        showToast('⚠️ 辨識失敗，請手動輸入');
+        console.error('Gemini食物辨識網路錯誤',err);
+        showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
       });
     };
     img.src=e.target.result;
