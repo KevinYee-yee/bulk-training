@@ -923,16 +923,29 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
 
 <script>
 // ── Bottom sheet show/hide (slide + fade) ──
+let _sheetLockCount=0,_sheetScrollY=0;
 function showSheet(id){
   const el=document.getElementById(id);
   el.hidden=false;el.style.display='flex';
   void el.offsetHeight;
   requestAnimationFrame(()=>el.classList.add('sheet-show'));
+  if(_sheetLockCount===0){
+    _sheetScrollY=window.scrollY;
+    document.body.style.position='fixed';
+    document.body.style.top=(-_sheetScrollY)+'px';
+    document.body.style.left='0';document.body.style.right='0';
+  }
+  _sheetLockCount++;
 }
 function hideSheet(id){
   const el=document.getElementById(id);
   el.classList.remove('sheet-show');
   setTimeout(()=>{if(!el.classList.contains('sheet-show')){el.style.display='none';el.hidden=true;}},320);
+  _sheetLockCount=Math.max(0,_sheetLockCount-1);
+  if(_sheetLockCount===0){
+    document.body.style.position='';document.body.style.top='';document.body.style.left='';document.body.style.right='';
+    window.scrollTo(0,_sheetScrollY);
+  }
 }
 // ── 動作資料庫（依部位）──
 // 只當「從沒編輯過時」的預設值；實際動作庫是可編輯資料，見 getExerciseDB()
@@ -4201,10 +4214,15 @@ function closeAddFood(){hideSheet('food-add-overlay');_editFoodIdx=-1;}
 function handleFoodPhoto(input){
   const file=input.files[0];if(!file)return;
   const gasUrl=getGASUrl();
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const img=new Image();
-    img.onload=()=>{
+  const objUrl=URL.createObjectURL(file);
+  const img=new Image();
+  img.onerror=()=>{
+    URL.revokeObjectURL(objUrl);
+    showToast('⚠️ 圖片讀取失敗，請重新選擇照片',4000);
+    input.value='';
+  };
+  img.onload=()=>{
+      URL.revokeObjectURL(objUrl);
       // 縮圖（顯示用）
       const thumb=document.createElement('canvas');
       const ts=Math.min(160/img.width,160/img.height);
@@ -4273,10 +4291,8 @@ function handleFoodPhoto(input){
         console.error('Gemini食物辨識網路錯誤',err);
         showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
       });
-    };
-    img.src=e.target.result;
   };
-  reader.readAsDataURL(file);
+  img.src=objUrl;
 }
 
 function searchFood(q){
