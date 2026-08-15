@@ -4233,7 +4233,7 @@ function handleFoodPhoto(input){
       const cfg2=getCfg();
       const geminiKey=cfg2.geminiKey||'';
       if(!geminiKey){showToast('請在設定中填入 Gemini API Key');if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}return;}
-      const geminiUrl='https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key='+geminiKey;
+      const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+geminiKey;
       fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           contents:[{parts:[
