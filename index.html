@@ -4256,7 +4256,7 @@ function handleFoodPhoto(input){
         body:JSON.stringify({
           contents:[{parts:[
             {inline_data:{mime_type:'image/jpeg',data:b64}},
-            {text:'這是一張食物照片。請估算這份食物的營養成分，以JSON格式回覆，只需JSON不要其他文字：{"name":"食物名稱（中文）","portion":"份量描述","kcal":熱量整數,"protein":蛋白質g整數,"carbs":碳水g整數,"fat":脂肪g整數}'}
+            {text:'這是一張食物照片。請估算「照片中這整份食物」（不是每100g）的總重量與總營養成分，以JSON格式回覆，只需JSON不要其他文字：{"name":"食物名稱（中文）","grams":整份食物總重量估計(公克,整數),"kcal":這整份的總熱量整數,"protein":這整份的總蛋白質g整數,"carbs":這整份的總碳水g整數,"fat":這整份的總脂肪g整數}'}
           ]}],
           generationConfig:{thinkingConfig:{thinkingBudget:0}}
         })
@@ -4279,8 +4279,8 @@ function handleFoodPhoto(input){
           const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
           set('food-kcal',parsed.kcal);set('food-protein',parsed.protein);
           set('food-carbs',parsed.carbs);set('food-fat',parsed.fat);
-          if(parsed.portion){const pl=document.getElementById('food-portion');if(pl)pl.placeholder=parsed.portion;}
-          showToast('✅ 辨識完成：'+(parsed.name||'食物'));
+          if(parsed.grams)set('food-portion',Math.round(parsed.grams));
+          showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI估算，僅供參考，誤差可能±20-30%）',4000);
         } else {
           const reason=data&&data.error?(data.error.message||JSON.stringify(data.error)):'回應格式異常，請重試';
           console.error('Gemini食物辨識失敗',data);
