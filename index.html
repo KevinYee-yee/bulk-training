@@ -777,9 +777,11 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     </div>
     <div class="sec-title" style="margin-top:12px">血壓紀錄</div>
     <div class="card">
-      <div style="margin-bottom:12px">
-        <label class="form-label">日期</label>
-        <input class="form-input" type="date" id="bp-date" style="color:#f0ece4;background:#161616">
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:10px;margin-bottom:12px">
+        <div><label class="form-label">日期</label>
+          <input class="form-input" type="date" id="bp-date" style="color:#f0ece4;background:#161616"></div>
+        <div><label class="form-label">時間</label>
+          <input class="form-input" type="time" id="bp-time" style="color:#f0ece4;background:#161616"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
         <div><label class="form-label">收縮壓</label><input class="form-input" type="number" id="bp-systolic" placeholder="—" inputmode="numeric"></div>
@@ -787,6 +789,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
         <div><label class="form-label">心率</label><input class="form-input" type="number" id="bp-hr" placeholder="選填" inputmode="numeric"></div>
       </div>
       <button class="btn btn-primary btn-full" onclick="saveBPEntry()">記錄血壓</button>
+      <div style="font-size:11px;color:rgba(240,236,228,.3);margin-top:8px">同一天可以記錄多次，每次量測都會分開存，時間欄會自動帶入現在時刻</div>
       <div id="bp-latest-badge" style="margin-top:10px"></div>
       <div class="chart-wrap" style="height:180px;margin-top:14px"><canvas id="bp-chart"></canvas></div>
     </div>
@@ -3926,6 +3929,8 @@ function renderBodyTab(){
   renderBodyGoalsUI();
   const bpDateEl=document.getElementById('bp-date');
   if(bpDateEl&&!bpDateEl.value)bpDateEl.value=todayStr();
+  const bpTimeEl=document.getElementById('bp-time');
+  if(bpTimeEl&&!bpTimeEl.value)bpTimeEl.value=nowTimeStr();
   renderBPChart();renderBPLatestBadge();
   if(!document.getElementById('bp-list-body').hidden)renderBPList();
 }
@@ -4103,12 +4108,13 @@ function bpCategory(sys,dia){
 }
 
 let _bpChart=null;
+function bpSortKey(r){return r.date+'T'+(r.time||'00:00');}
 function renderBPChart(){
   const ctx=document.getElementById('bp-chart');if(!ctx)return;
-  const raw=getBPData().slice().sort((a,b)=>a.date.localeCompare(b.date)).slice(-30);
+  const raw=getBPData().slice().sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b))).slice(-30);
   if(_bpChart){_bpChart.destroy();_bpChart=null;}
   if(!raw.length)return;
-  const labels=raw.map(d=>d.date.slice(5));
+  const labels=raw.map(d=>d.date.slice(5)+(d.time?' '+d.time:''));
   _bpChart=new Chart(ctx,{
     type:'line',
     data:{labels,datasets:[
@@ -4133,11 +4139,12 @@ function renderBPChart(){
 
 function renderBPLatestBadge(){
   const el=document.getElementById('bp-latest-badge');if(!el)return;
-  const arr=getBPData().slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const arr=getBPData().slice().sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b)));
   const last=arr[arr.length-1];
   if(!last){el.innerHTML='';return;}
   const cat=bpCategory(last.systolic,last.diastolic);
-  el.innerHTML=`<div style="font-size:12px;color:rgba(240,236,228,.5)">最近一次（${last.date.slice(5)}）：${last.systolic}/${last.diastolic} mmHg${last.hr?`・心率${last.hr}`:''}　<span style="color:${cat.color};font-weight:700">${cat.label}</span></div>`;
+  const whenTxt=last.date.slice(5)+(last.time?' '+last.time:'');
+  el.innerHTML=`<div style="font-size:12px;color:rgba(240,236,228,.5)">最近一次（${whenTxt}）：${last.systolic}/${last.diastolic} mmHg${last.hr?`・心率${last.hr}`:''}　<span style="color:${cat.color};font-weight:700">${cat.label}</span></div>`;
 }
 
 function toggleBPList(){
@@ -4152,13 +4159,14 @@ function toggleBPList(){
 
 function renderBPList(){
   const el=document.getElementById('bp-list-rows');if(!el)return;
-  const arr=getBPData().slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const arr=getBPData().slice().sort((a,b)=>bpSortKey(b).localeCompare(bpSortKey(a)));
   if(!arr.length){el.innerHTML='<div style="padding:12px 16px;font-size:13px;color:rgba(240,236,228,.35)">尚無記錄</div>';return;}
   el.innerHTML=arr.map((r,i)=>{
     const cat=bpCategory(r.systolic,r.diastolic);
     const isEven=i%2===0;
+    const whenTxt=r.date.slice(5)+(r.time?` ${r.time}`:'');
     return `<div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.6fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616">
-      <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${r.date.slice(5)}</div>
+      <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${whenTxt}</div>
       <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.systolic}</div>
       <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.diastolic}</div>
       <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.hr??'—'}</div>
@@ -4167,20 +4175,23 @@ function renderBPList(){
   }).join('');
 }
 
+function nowTimeStr(){const n=new Date();return p2(n.getHours())+':'+p2(n.getMinutes());}
 function saveBPEntry(){
   const date=document.getElementById('bp-date').value||todayStr();
+  const time=document.getElementById('bp-time').value||nowTimeStr();
   const systolic=parseInt(document.getElementById('bp-systolic').value);
   const diastolic=parseInt(document.getElementById('bp-diastolic').value);
   const hr=parseInt(document.getElementById('bp-hr').value)||null;
   if(!systolic||!diastolic){showToast('請輸入收縮壓與舒張壓');return;}
   const arr=getBPData();
-  const record={id:uid(),date,systolic,diastolic,hr};
+  const record={id:uid(),date,time,systolic,diastolic,hr};
   arr.push(record);
   saveBPData(arr);
   apiSaveBP(record);
   document.getElementById('bp-systolic').value='';
   document.getElementById('bp-diastolic').value='';
   document.getElementById('bp-hr').value='';
+  document.getElementById('bp-time').value=nowTimeStr();
   renderBPChart();renderBPLatestBadge();
   if(!document.getElementById('bp-list-body').hidden)renderBPList();
   const cat=bpCategory(systolic,diastolic);
@@ -4201,7 +4212,7 @@ async function syncBPFromGAS(){
     const pendingIds=pendingKeys('bp');
     const localPending=getBPData().filter(r=>pendingIds.has(r.id));
     const merged=json.records.filter(r=>!pendingIds.has(r.id)).concat(localPending);
-    saveBPData(merged.sort((a,b)=>a.date.localeCompare(b.date)));
+    saveBPData(merged.sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b))));
   }catch(e){}
 }
 
