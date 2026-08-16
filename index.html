@@ -775,6 +775,37 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
         <div id="weight-list-rows"></div>
       </div>
     </div>
+    <div class="sec-title" style="margin-top:12px">血壓紀錄</div>
+    <div class="card">
+      <div style="margin-bottom:12px">
+        <label class="form-label">日期</label>
+        <input class="form-input" type="date" id="bp-date" style="color:#f0ece4;background:#161616">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div><label class="form-label">收縮壓</label><input class="form-input" type="number" id="bp-systolic" placeholder="—" inputmode="numeric"></div>
+        <div><label class="form-label">舒張壓</label><input class="form-input" type="number" id="bp-diastolic" placeholder="—" inputmode="numeric"></div>
+        <div><label class="form-label">心率</label><input class="form-input" type="number" id="bp-hr" placeholder="選填" inputmode="numeric"></div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveBPEntry()">記錄血壓</button>
+      <div id="bp-latest-badge" style="margin-top:10px"></div>
+      <div class="chart-wrap" style="height:180px;margin-top:14px"><canvas id="bp-chart"></canvas></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <button onclick="toggleBPList()" id="bp-list-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:none;border:none;color:#f0ece4;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
+        <span>血壓紀錄清單</span>
+        <span id="bp-list-arrow" style="color:rgba(240,236,228,.4);font-size:11px;transition:transform .2s">▼</span>
+      </button>
+      <div id="bp-list-body" hidden>
+        <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.6fr;padding:6px 16px 8px;gap:4px">
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px">日期</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">收縮</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">舒張</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">心率</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px">分類</div>
+        </div>
+        <div id="bp-list-rows"></div>
+      </div>
+    </div>
     <div class="sec-title" style="margin-top:12px">今日攝取</div>
     <div class="card" id="body-today-card" style="padding:16px"></div>
     <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="openAddFood()">
@@ -1158,6 +1189,7 @@ async function flushPending(){
     }
     else if(p.type==='diet')ok=await apiPost('saveDiet',{date:p.key,meals:p.payload.meals});
     else if(p.type==='cardio')ok=await apiPost('saveCardio',{record:p.payload.record});
+    else if(p.type==='bp')ok=await apiPost('saveBP',{record:p.payload.record});
     else if(p.type==='bodyCfg')ok=await apiPost('saveBodyCfg',{cfg:p.payload.cfg});
     else if(p.type==='coachState')ok=await apiPost('saveCoachState',{state:p.payload.state});
     else if(p.type==='coachCycle')ok=await apiPost('saveCoachCycle',{cycle:p.payload.cycle});
@@ -1170,7 +1202,7 @@ async function flushPending(){
     if(ok)clearPending(p.type,p.key);
   }
   if(!getPending().length){
-    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS(),syncCoachSummariesFromGAS()]);
+    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBPFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS(),syncCoachSummariesFromGAS()]);
     WK=getCache();
     renderOverview();renderFreqProgress();renderCardioProgress();
     if(!document.getElementById('tab-body').hidden)renderBodyTab();
@@ -1374,6 +1406,7 @@ function goTab(tab,btn){
       syncWeightFromGAS().then(renderBodyTab);
       syncDietFromGAS().then(renderBodyTab);
       syncCardioFromGAS().then(renderBodyTab);
+      syncBPFromGAS().then(renderBodyTab);
     }
     if(tab==='menu'){
       syncCoachCycleFromGAS().then(renderMenuTab);
@@ -3891,6 +3924,10 @@ function renderBodyTab(){
   renderWeightChart2();
   renderDietList();
   renderBodyGoalsUI();
+  const bpDateEl=document.getElementById('bp-date');
+  if(bpDateEl&&!bpDateEl.value)bpDateEl.value=todayStr();
+  renderBPChart();renderBPLatestBadge();
+  if(!document.getElementById('bp-list-body').hidden)renderBPList();
 }
 
 function renderTodaySummary(){
@@ -4048,6 +4085,124 @@ function renderWeightList(){
     </div>`;
   }).join('');
   el.innerHTML=header+rows;
+}
+
+// ── 血壓紀錄 ──
+const BP_KEY='bulk_bp_v1';
+function getBPData(){return JSON.parse(localStorage.getItem(BP_KEY)||'[]');}
+function saveBPData(d){localStorage.setItem(BP_KEY,JSON.stringify(d));}
+
+// 美國心臟學會(AHA)血壓分類標準，僅供參考不是醫療診斷
+function bpCategory(sys,dia){
+  if(sys==null||dia==null)return{label:'—',color:'rgba(240,236,228,.35)'};
+  if(sys>=180||dia>=120)return{label:'⚠️ 高血壓危象',color:'#dc2626',urgent:true};
+  if(sys>=140||dia>=90)return{label:'高血壓二期',color:'#f87171'};
+  if(sys>=130||dia>=80)return{label:'高血壓一期',color:'#f59e0b'};
+  if(sys>=120)return{label:'偏高',color:'#fbbf24'};
+  return{label:'正常',color:'#4ade80'};
+}
+
+let _bpChart=null;
+function renderBPChart(){
+  const ctx=document.getElementById('bp-chart');if(!ctx)return;
+  const raw=getBPData().slice().sort((a,b)=>a.date.localeCompare(b.date)).slice(-30);
+  if(_bpChart){_bpChart.destroy();_bpChart=null;}
+  if(!raw.length)return;
+  const labels=raw.map(d=>d.date.slice(5));
+  _bpChart=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'收縮壓',data:raw.map(d=>d.systolic),borderColor:'#f87171',backgroundColor:'rgba(248,113,113,.06)',borderWidth:2,pointRadius:3,fill:false,tension:0.3,spanGaps:true},
+      {label:'舒張壓',data:raw.map(d=>d.diastolic),borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,.06)',borderWidth:2,pointRadius:3,fill:false,tension:0.3,spanGaps:true},
+      {label:'正常上限120',data:raw.map(()=>120),borderColor:'rgba(74,222,128,.35)',borderDash:[4,4],borderWidth:1,pointRadius:0,fill:false},
+      {label:'正常上限80',data:raw.map(()=>80),borderColor:'rgba(74,222,128,.2)',borderDash:[4,4],borderWidth:1,pointRadius:0,fill:false}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true,labels:{color:'rgba(240,236,228,.55)',font:{size:10},boxWidth:10,padding:8,filter:l=>!l.text.startsWith('正常上限')}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+' '+c.raw+(c.dataset.label.startsWith('正常')?'':' mmHg')}}
+      },
+      scales:{
+        x:{ticks:{color:'rgba(240,236,228,.35)',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'},border:{color:'transparent'}},
+        y:{ticks:{color:'rgba(240,236,228,.35)',font:{size:10},callback:v=>v},grid:{color:'rgba(255,255,255,.04)'},border:{color:'transparent'}}
+      }
+    }
+  });
+}
+
+function renderBPLatestBadge(){
+  const el=document.getElementById('bp-latest-badge');if(!el)return;
+  const arr=getBPData().slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const last=arr[arr.length-1];
+  if(!last){el.innerHTML='';return;}
+  const cat=bpCategory(last.systolic,last.diastolic);
+  el.innerHTML=`<div style="font-size:12px;color:rgba(240,236,228,.5)">最近一次（${last.date.slice(5)}）：${last.systolic}/${last.diastolic} mmHg${last.hr?`・心率${last.hr}`:''}　<span style="color:${cat.color};font-weight:700">${cat.label}</span></div>`;
+}
+
+function toggleBPList(){
+  const body=document.getElementById('bp-list-body');
+  const arrow=document.getElementById('bp-list-arrow');
+  if(!body)return;
+  const open=body.hidden;
+  body.hidden=!open;
+  if(arrow)arrow.style.transform=open?'rotate(180deg)':'';
+  if(open)renderBPList();
+}
+
+function renderBPList(){
+  const el=document.getElementById('bp-list-rows');if(!el)return;
+  const arr=getBPData().slice().sort((a,b)=>b.date.localeCompare(a.date));
+  if(!arr.length){el.innerHTML='<div style="padding:12px 16px;font-size:13px;color:rgba(240,236,228,.35)">尚無記錄</div>';return;}
+  el.innerHTML=arr.map((r,i)=>{
+    const cat=bpCategory(r.systolic,r.diastolic);
+    const isEven=i%2===0;
+    return `<div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.6fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616">
+      <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${r.date.slice(5)}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.systolic}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.diastolic}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.hr??'—'}</div>
+      <div style="padding:8px 0 8px 4px;font-size:11px;font-weight:700;color:${cat.color}">${cat.label}</div>
+    </div>`;
+  }).join('');
+}
+
+function saveBPEntry(){
+  const date=document.getElementById('bp-date').value||todayStr();
+  const systolic=parseInt(document.getElementById('bp-systolic').value);
+  const diastolic=parseInt(document.getElementById('bp-diastolic').value);
+  const hr=parseInt(document.getElementById('bp-hr').value)||null;
+  if(!systolic||!diastolic){showToast('請輸入收縮壓與舒張壓');return;}
+  const arr=getBPData();
+  const record={id:uid(),date,systolic,diastolic,hr};
+  arr.push(record);
+  saveBPData(arr);
+  apiSaveBP(record);
+  document.getElementById('bp-systolic').value='';
+  document.getElementById('bp-diastolic').value='';
+  document.getElementById('bp-hr').value='';
+  renderBPChart();renderBPLatestBadge();
+  if(!document.getElementById('bp-list-body').hidden)renderBPList();
+  const cat=bpCategory(systolic,diastolic);
+  showToast((cat.urgent?'⚠️ ':'✅ ')+`血壓已記錄：${systolic}/${diastolic}（${cat.label}）`,cat.urgent?6000:2200);
+}
+
+async function apiSaveBP(record){
+  const ok=await apiPost('saveBP',{record});
+  if(ok)clearPending('bp',record.id);
+  else queuePending('bp',record.id,{record});
+}
+async function syncBPFromGAS(){
+  const url=getGASUrl();if(!url)return;
+  try{
+    const res=await fetch(url+'?action=getBP');
+    const json=await res.json();
+    if(!json.ok||!json.records)return;
+    const pendingIds=pendingKeys('bp');
+    const localPending=getBPData().filter(r=>pendingIds.has(r.id));
+    const merged=json.records.filter(r=>!pendingIds.has(r.id)).concat(localPending);
+    saveBPData(merged.sort((a,b)=>a.date.localeCompare(b.date)));
+  }catch(e){}
 }
 
 function saveWeight(slot){
@@ -4544,6 +4699,7 @@ if(getGASUrl()){
     syncWeightFromGAS().then(()=>renderBodyTab());
     syncDietFromGAS().then(()=>renderBodyTab());
     syncCardioFromGAS().then(()=>renderCardioProgress());
+    syncBPFromGAS().then(()=>renderBodyTab());
     syncBodyCfgFromGAS().then(()=>{renderBodyTab();renderOverviewWeight();});
     syncCoachStateFromGAS().then(renderCoachCard);
     syncCoachCycleFromGAS().then(()=>{renderCoachCard();if(!document.getElementById('tab-menu').hidden)renderMenuTab();});
