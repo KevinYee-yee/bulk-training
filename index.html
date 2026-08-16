@@ -777,6 +777,19 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     </div>
     <div class="sec-title" style="margin-top:12px">血壓紀錄</div>
     <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <div id="bp-photo-preview"><div style="width:44px;height:44px;background:#161616;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;color:rgba(240,236,228,.2)">📷</div></div>
+        <div style="flex:1;display:flex;gap:8px">
+          <label style="flex:1;background:#161616;border:1px solid #2a2a2a;border-radius:10px;padding:9px 6px;font-size:12px;color:rgba(240,236,228,.45);cursor:pointer;display:block;text-align:center;font-weight:600">
+            📷 拍血壓計
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleBPPhoto(this)">
+          </label>
+          <label style="flex:1;background:#161616;border:1px solid #2a2a2a;border-radius:10px;padding:9px 6px;font-size:12px;color:rgba(240,236,228,.45);cursor:pointer;display:block;text-align:center;font-weight:600">
+            🖼 上傳
+            <input type="file" accept="image/*" style="display:none" onchange="handleBPPhoto(this)">
+          </label>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:10px;margin-bottom:12px">
         <div><label class="form-label">日期</label>
           <input class="form-input" type="date" id="bp-date" style="color:#f0ece4;background:#161616"></div>
@@ -4139,12 +4152,14 @@ function renderBPChart(){
 
 function renderBPLatestBadge(){
   const el=document.getElementById('bp-latest-badge');if(!el)return;
-  const arr=getBPData().slice().sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b)));
-  const last=arr[arr.length-1];
+  const sessions=groupBPSessions(getBPData());
+  const last=sessions[sessions.length-1];
   if(!last){el.innerHTML='';return;}
-  const cat=bpCategory(last.systolic,last.diastolic);
-  const whenTxt=last.date.slice(5)+(last.time?' '+last.time:'');
-  el.innerHTML=`<div style="font-size:12px;color:rgba(240,236,228,.5)">最近一次（${whenTxt}）：${last.systolic}/${last.diastolic} mmHg${last.hr?`・心率${last.hr}`:''}　<span style="color:${cat.color};font-weight:700">${cat.label}</span></div>`;
+  const avg=sessionAverage(last);
+  const cat=bpCategory(avg.systolic,avg.diastolic);
+  const whenTxt=avg.date.slice(5)+(avg.time?' '+avg.time:'');
+  const noteTxt=avg.n>=2?`（本次量${avg.n}次${avg.n>=3?'，丟第一次':''}取平均）`:'（單筆，建議連續量2-3次取平均更準）';
+  el.innerHTML=`<div style="font-size:12px;color:rgba(240,236,228,.5)">最近一次（${whenTxt}）：${avg.systolic}/${avg.diastolic} mmHg${avg.hr?`・心率${avg.hr}`:''}　<span style="color:${cat.color};font-weight:700">${cat.label}</span><br><span style="font-size:10.5px;color:rgba(240,236,228,.32)">${noteTxt}</span></div>`;
 }
 
 function toggleBPList(){
@@ -4159,23 +4174,152 @@ function toggleBPList(){
 
 function renderBPList(){
   const el=document.getElementById('bp-list-rows');if(!el)return;
-  const arr=getBPData().slice().sort((a,b)=>bpSortKey(b).localeCompare(bpSortKey(a)));
-  if(!arr.length){el.innerHTML='<div style="padding:12px 16px;font-size:13px;color:rgba(240,236,228,.35)">尚無記錄</div>';return;}
-  el.innerHTML=arr.map((r,i)=>{
-    const cat=bpCategory(r.systolic,r.diastolic);
-    const isEven=i%2===0;
-    const whenTxt=r.date.slice(5)+(r.time?` ${r.time}`:'');
-    return `<div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.6fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616">
-      <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${whenTxt}</div>
-      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.systolic}</div>
-      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.diastolic}</div>
-      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${r.hr??'—'}</div>
-      <div style="padding:8px 0 8px 4px;font-size:11px;font-weight:700;color:${cat.color}">${cat.label}</div>
+  const sessions=groupBPSessions(getBPData()).slice().reverse();
+  if(!sessions.length){el.innerHTML='<div style="padding:12px 16px;font-size:13px;color:rgba(240,236,228,.35)">尚無記錄</div>';return;}
+  const row=(whenTxt,sys,dia,hr,label,color,bold,dim)=>`<div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.6fr;gap:4px;align-items:center;${bold?'background:rgba(255,255,255,.03)':''};border-top:1px solid #161616">
+      <div style="padding:8px 0 8px 16px;font-size:12px;color:${dim?'rgba(240,236,228,.4)':'#f0ece4'};font-weight:${bold?800:600}">${whenTxt}</div>
+      <div style="padding:8px 0;font-size:12px;color:${dim?'rgba(240,236,228,.4)':'rgba(240,236,228,.7)'};text-align:center">${sys}</div>
+      <div style="padding:8px 0;font-size:12px;color:${dim?'rgba(240,236,228,.4)':'rgba(240,236,228,.7)'};text-align:center">${dia}</div>
+      <div style="padding:8px 0;font-size:12px;color:${dim?'rgba(240,236,228,.4)':'rgba(240,236,228,.7)'};text-align:center">${hr??'—'}</div>
+      <div style="padding:8px 0 8px 4px;font-size:11px;font-weight:700;color:${color}">${label}</div>
     </div>`;
+  el.innerHTML=sessions.map(s=>{
+    const multi=s.readings.length>=2;
+    const readingRows=s.readings.slice().reverse().map(r=>{
+      const cat=bpCategory(r.systolic,r.diastolic);
+      const whenTxt=(multi?'　↳ ':'')+r.date.slice(5)+(r.time?` ${r.time}`:'');
+      return row(whenTxt,r.systolic,r.diastolic,r.hr,cat.label,cat.color,false,multi);
+    }).join('');
+    if(!multi)return readingRows;
+    const avg=sessionAverage(s);
+    const cat=bpCategory(avg.systolic,avg.diastolic);
+    const avgRow=row('平均（'+avg.usedN+'次）',avg.systolic,avg.diastolic,avg.hr,cat.label,cat.color,true,false);
+    return avgRow+readingRows;
   }).join('');
 }
 
 function nowTimeStr(){const n=new Date();return p2(n.getHours())+':'+p2(n.getMinutes());}
+
+// ── 血壓計拍照辨識（讀螢幕上的數字，不是估算，準確度應該遠高於食物辨識）──
+let _bpAnalysisB64=null;
+function handleBPPhoto(input){
+  const file=input.files[0];if(!file)return;
+  const objUrl=URL.createObjectURL(file);
+  const img=new Image();
+  img.onerror=()=>{
+    URL.revokeObjectURL(objUrl);
+    showToast('⚠️ 圖片讀取失敗，請重新選擇照片',4000);
+    input.value='';
+  };
+  img.onload=()=>{
+    URL.revokeObjectURL(objUrl);
+    const thumb=document.createElement('canvas');
+    const ts=Math.min(140/img.width,140/img.height);
+    thumb.width=Math.round(img.width*ts);thumb.height=Math.round(img.height*ts);
+    thumb.getContext('2d').drawImage(img,0,0,thumb.width,thumb.height);
+    document.getElementById('bp-photo-preview').innerHTML=`<img src="${thumb.toDataURL('image/jpeg',0.75)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`;
+
+    const ac=document.createElement('canvas');
+    const as=Math.min(1,800/Math.max(img.width,img.height));
+    ac.width=Math.round(img.width*as);ac.height=Math.round(img.height*as);
+    ac.getContext('2d').drawImage(img,0,0,ac.width,ac.height);
+    _bpAnalysisB64=ac.toDataURL('image/jpeg',0.85).split(',')[1];
+    analyzeBPPhoto();
+  };
+  img.src=objUrl;
+}
+
+const BP_ANALYZE_MAX_RETRY=2;
+function analyzeBPPhoto(retryCount){
+  retryCount=retryCount||0;
+  if(!_bpAnalysisB64)return;
+  const cfg2=getCfg();
+  const geminiKey=cfg2.geminiKey||'';
+  if(!geminiKey){showToast('請在設定中填入 Gemini API Key');return;}
+  const sysInp=document.getElementById('bp-systolic'),diaInp=document.getElementById('bp-diastolic'),hrInp=document.getElementById('bp-hr');
+  [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.value='';el.placeholder=retryCount>0?'重試中…':'🔍 辨識中…';el.disabled=true;}});
+  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
+  fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{parts:[
+        {inline_data:{mime_type:'image/jpeg',data:_bpAnalysisB64}},
+        {text:'這是一張血壓計螢幕顯示畫面的照片。請讀取螢幕上顯示的收縮壓(SYS/上壓)、舒張壓(DIA/下壓)、心率或脈搏(PULSE)數字，這是直接讀取螢幕顯示的數字不是估算，只需JSON不要其他文字，不要用markdown code block包裹：{"systolic":收縮壓整數,"diastolic":舒張壓整數,"hr":心率整數,"readable":螢幕數字是否清楚可讀(true/false)}'}
+      ]}],
+      generationConfig:{thinkingConfig:{thinkingBudget:0}}
+    })
+  }).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
+    let parsed=null;
+    if(data.candidates&&data.candidates[0]){
+      const parts=data.candidates[0].content.parts;
+      const tp=parts.find(p=>!p.thought&&p.text)||parts[0];
+      let raw=(tp.text||'').trim().replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+      const first=raw.indexOf('{'),last=raw.lastIndexOf('}');
+      if(first>=0&&last>first){try{parsed=JSON.parse(raw.slice(first,last+1));}catch(e){}}
+    }
+    [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.disabled=false;}});
+    sysInp.placeholder='—';diaInp.placeholder='—';hrInp.placeholder='選填';
+    if(parsed&&parsed.systolic&&parsed.diastolic){
+      sysInp.value=parsed.systolic;diaInp.value=parsed.diastolic;
+      if(parsed.hr)hrInp.value=parsed.hr;
+      if(parsed.readable===false){
+        showToast('⚠️ 螢幕數字不太清楚，讀出來的是 '+parsed.systolic+'/'+parsed.diastolic+'，麻煩確認一下再存',5000);
+      }else{
+        showToast('✅ 讀取到血壓：'+parsed.systolic+'/'+parsed.diastolic+(parsed.hr?'　心率'+parsed.hr:''),3500);
+      }
+    }else{
+      const errMsg=(data&&data.error&&(data.error.message||data.error.status))||'';
+      const isOverload=status===503||status===429||/overload|unavailable|high demand|quota/i.test(errMsg);
+      if(isOverload&&retryCount<BP_ANALYZE_MAX_RETRY){
+        setTimeout(()=>analyzeBPPhoto(retryCount+1),1500*(retryCount+1));
+        return;
+      }
+      console.error('血壓照片辨識失敗',data);
+      showToast('⚠️ 辨識失敗，請手動輸入數字：'+(errMsg||'看不清楚螢幕或格式異常'),6000);
+    }
+  }).catch(err=>{
+    if(retryCount<BP_ANALYZE_MAX_RETRY){
+      setTimeout(()=>analyzeBPPhoto(retryCount+1),1500*(retryCount+1));
+      return;
+    }
+    [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.disabled=false;}});
+    sysInp.placeholder='—';diaInp.placeholder='—';hrInp.placeholder='選填';
+    console.error('血壓照片辨識網路錯誤',err);
+    showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
+  });
+}
+
+// ── 同時段多次量測分組（臨床作法：連續量測取平均比單筆準）──
+// 同一天、相鄰兩筆時間差在15分鐘內，算同一個「量測時段」
+function groupBPSessions(records){
+  const arr=records.slice().sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b)));
+  const sessions=[];
+  arr.forEach(r=>{
+    const last=sessions[sessions.length-1];
+    const rMin=(r.time||'00:00').split(':').map(Number);
+    const rMinutes=rMin[0]*60+rMin[1];
+    if(last&&last.date===r.date){
+      const lastR=last.readings[last.readings.length-1];
+      const lMin=(lastR.time||'00:00').split(':').map(Number);
+      const lMinutes=lMin[0]*60+lMin[1];
+      if(rMinutes-lMinutes<=15){last.readings.push(r);return;}
+    }
+    sessions.push({date:r.date,readings:[r]});
+  });
+  return sessions;
+}
+// 臨床慣例：3筆以上丟第一筆（緊張效應）取後面平均；2筆取平均；1筆就是單筆
+function sessionAverage(session){
+  const rs=session.readings.length>=3?session.readings.slice(1):session.readings;
+  const avg=(k)=>Math.round(rs.reduce((a,r)=>a+(r[k]||0),0)/rs.length);
+  const hrVals=rs.filter(r=>r.hr!=null);
+  return{
+    systolic:avg('systolic'),diastolic:avg('diastolic'),
+    hr:hrVals.length?Math.round(hrVals.reduce((a,r)=>a+r.hr,0)/hrVals.length):null,
+    n:session.readings.length,usedN:rs.length,date:session.date,
+    time:session.readings[session.readings.length-1].time
+  };
+}
+
 function saveBPEntry(){
   const date=document.getElementById('bp-date').value||todayStr();
   const time=document.getElementById('bp-time').value||nowTimeStr();
@@ -4192,6 +4336,8 @@ function saveBPEntry(){
   document.getElementById('bp-diastolic').value='';
   document.getElementById('bp-hr').value='';
   document.getElementById('bp-time').value=nowTimeStr();
+  _bpAnalysisB64=null;
+  document.getElementById('bp-photo-preview').innerHTML='<div style="width:44px;height:44px;background:#161616;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;color:rgba(240,236,228,.2)">📷</div>';
   renderBPChart();renderBPLatestBadge();
   if(!document.getElementById('bp-list-body').hidden)renderBPList();
   const cat=bpCategory(systolic,diastolic);
