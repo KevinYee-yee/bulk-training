@@ -785,10 +785,16 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
             <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleBPPhoto(this)">
           </label>
           <label style="flex:1;background:#161616;border:1px solid #2a2a2a;border-radius:10px;padding:9px 6px;font-size:12px;color:rgba(240,236,228,.45);cursor:pointer;display:block;text-align:center;font-weight:600">
-            🖼 上傳
-            <input type="file" accept="image/*" style="display:none" onchange="handleBPPhoto(this)">
+            🖼 上傳（可多選）
+            <input type="file" accept="image/*" multiple style="display:none" onchange="handleBPPhotosMultiple(this)">
           </label>
         </div>
+      </div>
+      <div id="bp-batch-review" style="display:none;margin-top:-4px;margin-bottom:14px;padding:12px;background:#141414;border-radius:10px">
+        <div style="font-size:12px;font-weight:700;color:#f0ece4;margin-bottom:10px" id="bp-batch-title">辨識中…</div>
+        <div id="bp-batch-rows" style="display:flex;flex-direction:column;gap:10px"></div>
+        <button class="btn btn-primary btn-full" style="margin-top:12px" onclick="saveBPBatch()">✅ 全部儲存</button>
+        <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="cancelBPBatch()">取消</button>
       </div>
       <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:10px;margin-bottom:12px">
         <div><label class="form-label">日期</label>
@@ -4230,19 +4236,17 @@ function handleBPPhoto(input){
 }
 
 const BP_ANALYZE_MAX_RETRY=2;
-function analyzeBPPhoto(retryCount){
+// 純函式：b64→{systolic,diastolic,hr,readable} 或 {error}，不碰 DOM，單張/多張辨識共用
+function analyzeBPImageB64(b64,retryCount){
   retryCount=retryCount||0;
-  if(!_bpAnalysisB64)return;
   const cfg2=getCfg();
   const geminiKey=cfg2.geminiKey||'';
-  if(!geminiKey){showToast('請在設定中填入 Gemini API Key');return;}
-  const sysInp=document.getElementById('bp-systolic'),diaInp=document.getElementById('bp-diastolic'),hrInp=document.getElementById('bp-hr');
-  [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.value='';el.placeholder=retryCount>0?'重試中…':'🔍 辨識中…';el.disabled=true;}});
+  if(!geminiKey)return Promise.resolve({error:'請在設定中填入 Gemini API Key'});
   const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
-  fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+  return fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
-        {inline_data:{mime_type:'image/jpeg',data:_bpAnalysisB64}},
+        {inline_data:{mime_type:'image/jpeg',data:b64}},
         {text:'這是一張血壓計螢幕顯示畫面的照片。請讀取螢幕上顯示的收縮壓(SYS/上壓)、舒張壓(DIA/下壓)、心率或脈搏(PULSE)數字，這是直接讀取螢幕顯示的數字不是估算，只需JSON不要其他文字，不要用markdown code block包裹：{"systolic":收縮壓整數,"diastolic":舒張壓整數,"hr":心率整數,"readable":螢幕數字是否清楚可讀(true/false)}'}
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:0}}
@@ -4256,36 +4260,161 @@ function analyzeBPPhoto(retryCount){
       const first=raw.indexOf('{'),last=raw.lastIndexOf('}');
       if(first>=0&&last>first){try{parsed=JSON.parse(raw.slice(first,last+1));}catch(e){}}
     }
-    [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.disabled=false;}});
-    sysInp.placeholder='—';diaInp.placeholder='—';hrInp.placeholder='選填';
-    if(parsed&&parsed.systolic&&parsed.diastolic){
-      sysInp.value=parsed.systolic;diaInp.value=parsed.diastolic;
-      if(parsed.hr)hrInp.value=parsed.hr;
-      if(parsed.readable===false){
-        showToast('⚠️ 螢幕數字不太清楚，讀出來的是 '+parsed.systolic+'/'+parsed.diastolic+'，麻煩確認一下再存',5000);
-      }else{
-        showToast('✅ 讀取到血壓：'+parsed.systolic+'/'+parsed.diastolic+(parsed.hr?'　心率'+parsed.hr:''),3500);
-      }
-    }else{
-      const errMsg=(data&&data.error&&(data.error.message||data.error.status))||'';
-      const isOverload=status===503||status===429||/overload|unavailable|high demand|quota/i.test(errMsg);
-      if(isOverload&&retryCount<BP_ANALYZE_MAX_RETRY){
-        setTimeout(()=>analyzeBPPhoto(retryCount+1),1500*(retryCount+1));
-        return;
-      }
-      console.error('血壓照片辨識失敗',data);
-      showToast('⚠️ 辨識失敗，請手動輸入數字：'+(errMsg||'看不清楚螢幕或格式異常'),6000);
+    if(parsed&&parsed.systolic&&parsed.diastolic)return parsed;
+    const errMsg=(data&&data.error&&(data.error.message||data.error.status))||'';
+    const isOverload=status===503||status===429||/overload|unavailable|high demand|quota/i.test(errMsg);
+    if(isOverload&&retryCount<BP_ANALYZE_MAX_RETRY){
+      return new Promise(res=>setTimeout(res,1500*(retryCount+1))).then(()=>analyzeBPImageB64(b64,retryCount+1));
     }
+    return{error:errMsg||'看不清楚螢幕或格式異常'};
   }).catch(err=>{
     if(retryCount<BP_ANALYZE_MAX_RETRY){
-      setTimeout(()=>analyzeBPPhoto(retryCount+1),1500*(retryCount+1));
-      return;
+      return new Promise(res=>setTimeout(res,1500*(retryCount+1))).then(()=>analyzeBPImageB64(b64,retryCount+1));
     }
-    [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.disabled=false;}});
-    sysInp.placeholder='—';diaInp.placeholder='—';hrInp.placeholder='選填';
-    console.error('血壓照片辨識網路錯誤',err);
-    showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
+    return{error:(err&&err.message)||'網路錯誤'};
   });
+}
+
+function analyzeBPPhoto(){
+  if(!_bpAnalysisB64)return;
+  const cfg2=getCfg();
+  if(!cfg2.geminiKey){showToast('請在設定中填入 Gemini API Key');return;}
+  const sysInp=document.getElementById('bp-systolic'),diaInp=document.getElementById('bp-diastolic'),hrInp=document.getElementById('bp-hr');
+  [sysInp,diaInp,hrInp].forEach(el=>{if(el){el.value='';el.placeholder='🔍 辨識中…';el.disabled=true;}});
+  analyzeBPImageB64(_bpAnalysisB64).then(result=>{
+    [sysInp,diaInp,hrInp].forEach(el=>{if(el)el.disabled=false;});
+    sysInp.placeholder='—';diaInp.placeholder='—';hrInp.placeholder='選填';
+    if(result&&result.systolic&&result.diastolic){
+      sysInp.value=result.systolic;diaInp.value=result.diastolic;
+      if(result.hr)hrInp.value=result.hr;
+      if(result.readable===false){
+        showToast('⚠️ 螢幕數字不太清楚，讀出來的是 '+result.systolic+'/'+result.diastolic+'，麻煩確認一下再存',5000);
+      }else{
+        showToast('✅ 讀取到血壓：'+result.systolic+'/'+result.diastolic+(result.hr?'　心率'+result.hr:''),3500);
+      }
+    }else{
+      console.error('血壓照片辨識失敗',result);
+      showToast('⚠️ 辨識失敗，請手動輸入數字：'+((result&&result.error)||'看不清楚螢幕或格式異常'),6000);
+    }
+  });
+}
+
+function fileToResizedB64(file){
+  return new Promise((resolve,reject)=>{
+    const objUrl=URL.createObjectURL(file);
+    const img=new Image();
+    img.onerror=()=>{URL.revokeObjectURL(objUrl);reject(new Error('圖片讀取失敗'));};
+    img.onload=()=>{
+      URL.revokeObjectURL(objUrl);
+      const ac=document.createElement('canvas');
+      const as=Math.min(1,800/Math.max(img.width,img.height));
+      ac.width=Math.round(img.width*as);ac.height=Math.round(img.height*as);
+      ac.getContext('2d').drawImage(img,0,0,ac.width,ac.height);
+      resolve(ac.toDataURL('image/jpeg',0.85).split(',')[1]);
+    };
+    img.src=objUrl;
+  });
+}
+
+// ── 多張血壓計照片一次上傳：用照片本身的拍攝時間(file.lastModified)自動判斷每筆的日期/時間 ──
+let _bpBatchItems=[];
+function handleBPPhotosMultiple(input){
+  const files=Array.from(input.files||[]);
+  if(!files.length)return;
+  if(files.length===1){handleBPPhoto(input);return;}
+  const cfg2=getCfg();
+  if(!cfg2.geminiKey){showToast('請在設定中填入 Gemini API Key');return;}
+  _bpBatchItems=files.map(f=>{
+    const d=new Date(f.lastModified);
+    const date=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+    const time=p2(d.getHours())+':'+p2(d.getMinutes());
+    return{file:f,date,time,systolic:null,diastolic:null,hr:null,status:'pending'};
+  }).sort((a,b)=>bpSortKey(a).localeCompare(bpSortKey(b)));
+  document.getElementById('bp-batch-title').textContent=`偵測到 ${files.length} 張照片，依拍攝時間排序辨識中…`;
+  document.getElementById('bp-batch-review').style.display='block';
+  renderBPBatchRowsInitial();
+  _bpBatchItems.forEach((item,i)=>{
+    fileToResizedB64(item.file)
+      .then(b64=>analyzeBPImageB64(b64))
+      .then(result=>{
+        if(result&&result.systolic&&result.diastolic){
+          item.systolic=result.systolic;item.diastolic=result.diastolic;item.hr=result.hr||null;
+          item.status=result.readable===false?'unclear':'ok';
+        }else{
+          item.status='fail';
+        }
+        updateBPBatchRow(i);
+        updateBPBatchTitle();
+      })
+      .catch(()=>{item.status='fail';updateBPBatchRow(i);updateBPBatchTitle();});
+  });
+}
+
+function renderBPBatchRowsInitial(){
+  const el=document.getElementById('bp-batch-rows');if(!el)return;
+  el.innerHTML=_bpBatchItems.map((item,i)=>`
+    <div style="border-top:1px solid #222;padding-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;color:rgba(240,236,228,.4)">${item.date.slice(5)}</span>
+        <input type="time" id="bp-batch-time-${i}" value="${item.time}" style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:6px;color:#f0ece4;font-size:11px;padding:3px 6px">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <input class="form-input" type="number" id="bp-batch-sys-${i}" placeholder="收縮" style="font-size:13px;padding:8px">
+        <input class="form-input" type="number" id="bp-batch-dia-${i}" placeholder="舒張" style="font-size:13px;padding:8px">
+        <input class="form-input" type="number" id="bp-batch-hr-${i}" placeholder="心率" style="font-size:13px;padding:8px">
+      </div>
+      <div id="bp-batch-status-${i}" style="font-size:10.5px;margin-top:3px;color:rgba(240,236,228,.35)">⏳ 辨識中…</div>
+    </div>`).join('');
+}
+
+function updateBPBatchRow(i){
+  const item=_bpBatchItems[i];if(!item)return;
+  const sysEl=document.getElementById('bp-batch-sys-'+i);
+  const diaEl=document.getElementById('bp-batch-dia-'+i);
+  const hrEl=document.getElementById('bp-batch-hr-'+i);
+  const statusEl=document.getElementById('bp-batch-status-'+i);
+  if(sysEl&&item.systolic!=null)sysEl.value=item.systolic;
+  if(diaEl&&item.diastolic!=null)diaEl.value=item.diastolic;
+  if(hrEl&&item.hr!=null)hrEl.value=item.hr;
+  if(statusEl){
+    if(item.status==='fail')statusEl.innerHTML='<span style="color:#f87171">⚠️ 辨識失敗，請手動輸入</span>';
+    else if(item.status==='unclear')statusEl.innerHTML='<span style="color:#fbbf24">⚠️ 螢幕不太清楚，請確認數字</span>';
+    else if(item.status==='ok')statusEl.innerHTML='<span style="color:#4ade80">✅ 已辨識</span>';
+  }
+}
+
+function updateBPBatchTitle(){
+  const el=document.getElementById('bp-batch-title');if(!el)return;
+  const done=_bpBatchItems.filter(it=>it.status!=='pending').length;
+  el.textContent=done<_bpBatchItems.length?`辨識中…（${done}/${_bpBatchItems.length}）`:`共 ${_bpBatchItems.length} 筆，確認數字後按「全部儲存」`;
+}
+
+function saveBPBatch(){
+  const arr=getBPData();
+  let savedCount=0;
+  _bpBatchItems.forEach((item,i)=>{
+    const sys=parseInt(document.getElementById('bp-batch-sys-'+i)?.value);
+    const dia=parseInt(document.getElementById('bp-batch-dia-'+i)?.value);
+    const hr=parseInt(document.getElementById('bp-batch-hr-'+i)?.value)||null;
+    const time=document.getElementById('bp-batch-time-'+i)?.value||item.time;
+    if(!sys||!dia)return;
+    const record={id:uid(),date:item.date,time,systolic:sys,diastolic:dia,hr};
+    arr.push(record);
+    apiSaveBP(record);
+    savedCount++;
+  });
+  saveBPData(arr);
+  const skipped=_bpBatchItems.length-savedCount;
+  cancelBPBatch();
+  renderBPChart();renderBPLatestBadge();
+  if(!document.getElementById('bp-list-body').hidden)renderBPList();
+  showToast(`✅ 已儲存 ${savedCount} 筆血壓紀錄`+(skipped?`，${skipped}筆缺數字已略過`:''),3500);
+}
+
+function cancelBPBatch(){
+  _bpBatchItems=[];
+  const el=document.getElementById('bp-batch-review');if(el)el.style.display='none';
+  const rowsEl=document.getElementById('bp-batch-rows');if(rowsEl)rowsEl.innerHTML='';
 }
 
 // ── 同時段多次量測分組（臨床作法：連續量測取平均比單筆準）──
