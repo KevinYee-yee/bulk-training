@@ -803,6 +803,11 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
         </label>
       </div>
     </div>
+    <div id="food-desc-block" style="display:none;margin-bottom:14px">
+      <label class="form-label">補充說明（選填，AI看不準時幫它一把）</label>
+      <input class="form-input" id="food-desc-input" placeholder="例如：巧克力厚片、去皮雞胸、無糖豆漿">
+      <button id="food-analyze-btn" class="btn btn-primary btn-full" style="margin-top:8px" onclick="analyzeFoodPhoto()">🔍 開始辨識</button>
+    </div>
     <label class="form-label">食物名稱</label>
     <div style="position:relative;margin-bottom:12px">
       <input class="form-input" id="food-name-input" placeholder="搜尋或直接輸入（如：雞胸肉）" autocomplete="off"
@@ -4244,16 +4249,18 @@ function saveBodyGoals(){
 }
 
 // ── 飲食新增 bottom sheet ──
-let _foodThumb=null,_foodPer100g=null,_foodSearchResults=[],_editFoodIdx=-1;
+let _foodThumb=null,_foodPer100g=null,_foodSearchResults=[],_editFoodIdx=-1,_foodAnalysisB64=null;
 let _foodSearchTimer=null;
 function openAddFood(editIdx){
-  _foodThumb=null;_foodPer100g=null;_foodSearchResults=[];
+  _foodThumb=null;_foodPer100g=null;_foodSearchResults=[];_foodAnalysisB64=null;
   _editFoodIdx=(editIdx!=null)?editIdx:-1;
   ['food-name-input','food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('food-portion').value='100';
   document.getElementById('food-photo-preview').innerHTML='<div style="width:54px;height:54px;background:#161616;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;color:rgba(240,236,228,.2)">📷</div>';
   document.getElementById('food-dd').hidden=true;
   const bdEl0=document.getElementById('food-breakdown');if(bdEl0){bdEl0.style.display='none';bdEl0.innerHTML='';}
+  const descBlock0=document.getElementById('food-desc-block');if(descBlock0)descBlock0.style.display='none';
+  const descInput0=document.getElementById('food-desc-input');if(descInput0)descInput0.value='';
   const titleEl=document.getElementById('food-sheet-title');
   const saveBtnEl=document.getElementById('food-save-btn');
   if(_editFoodIdx>=0){
@@ -4296,82 +4303,95 @@ function handleFoodPhoto(input){
 
       if(!gasUrl){showToast('請先設定 GAS 網址才能辨識食物');return;}
 
-      // 分析用圖（較大解析度）
+      // 分析用圖（較大解析度），先存起來，等使用者按「開始辨識」才真正呼叫 API
+      // 這樣使用者可以先在補充說明欄打字（例如「巧克力厚片」）澄清 AI 視覺辨識不出來的細節，不用先猜錯再重來
       const ac=document.createElement('canvas');
       const as=Math.min(1,800/Math.max(img.width,img.height));
       ac.width=Math.round(img.width*as);ac.height=Math.round(img.height*as);
       ac.getContext('2d').drawImage(img,0,0,ac.width,ac.height);
-      const b64=ac.toDataURL('image/jpeg',0.85).split(',')[1];
+      _foodAnalysisB64=ac.toDataURL('image/jpeg',0.85).split(',')[1];
 
-      // 顯示分析中
-      const nameInp=document.getElementById('food-name-input');
-      if(nameInp){nameInp.value='';nameInp.placeholder='🔍 AI 辨識中…';nameInp.disabled=true;}
-      ['food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{
-        const el=document.getElementById(id);if(el){el.value='';el.placeholder='…';}
-      });
-
-      // 直接呼叫 Gemini API（繞過 GAS POST redirect 問題）
-      const cfg2=getCfg();
-      const geminiKey=cfg2.geminiKey||'';
-      if(!geminiKey){showToast('請在設定中填入 Gemini API Key');if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}return;}
-      const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
-      fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          contents:[{parts:[
-            {inline_data:{mime_type:'image/jpeg',data:b64}},
-            {text:'這是一張食物照片。請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），針對「照片中這整份」（不是每100g）逐項估算重量與營養素，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}'}
-          ]}],
-          generationConfig:{thinkingConfig:{thinkingBudget:0}}
-        })
-      }).then(r=>r.json()).then(data=>{
-        if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
-        ['food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{const el=document.getElementById(id);if(el)el.placeholder='—';});
-        // 支援 Gemini 直接回應格式（用第一個 { 到最後一個 } 擷取，避免 items 陣列內的巢狀 {} 被非貪婪比對截斷）
-        let parsed=null;
-        if(data.candidates&&data.candidates[0]){
-          const parts=data.candidates[0].content.parts;
-          const tp=parts.find(p=>!p.thought&&p.text)||parts[0];
-          let raw=(tp.text||'').trim().replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
-          const first=raw.indexOf('{'),last=raw.lastIndexOf('}');
-          if(first>=0&&last>first){try{parsed=JSON.parse(raw.slice(first,last+1));}catch(e){}}
-        } else if(data.ok&&data.name){
-          parsed=data;
-        }
-        const items=parsed&&Array.isArray(parsed.items)?parsed.items:null;
-        const bdEl=document.getElementById('food-breakdown');
-        if(parsed&&items&&items.length){
-          const sum=(k)=>items.reduce((a,it)=>a+(parseFloat(it[k])||0),0);
-          if(nameInp)nameInp.value=parsed.name||items.map(it=>it.item).join('、');
-          const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=Math.round(v);};
-          set('food-kcal',sum('kcal'));set('food-protein',sum('protein'));
-          set('food-carbs',sum('carbs'));set('food-fat',sum('fat'));
-          set('food-portion',sum('grams'));
-          if(bdEl){
-            bdEl.style.display='block';
-            bdEl.innerHTML='逐項估算：'+items.map(it=>`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${Math.round(it.protein)||0}・碳水${Math.round(it.carbs)||0}・脂肪${Math.round(it.fat)||0}）`).join('<br>');
-          }
-          showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI逐項估算，僅供參考，誤差可能±20-30%）',4500);
-        } else if(parsed&&parsed.kcal!=null){
-          // 相容舊格式（沒有 items 陣列時退回單一總量）
-          if(nameInp)nameInp.value=parsed.name||'';
-          const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
-          set('food-kcal',parsed.kcal);set('food-protein',parsed.protein);
-          set('food-carbs',parsed.carbs);set('food-fat',parsed.fat);
-          if(parsed.grams)set('food-portion',Math.round(parsed.grams));
-          if(bdEl)bdEl.style.display='none';
-          showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI估算，僅供參考，誤差可能±20-30%）',4000);
-        } else {
-          const reason=data&&data.error?(data.error.message||JSON.stringify(data.error)):'回應格式異常，請重試';
-          console.error('Gemini食物辨識失敗',data);
-          showToast('⚠️ 辨識失敗：'+reason,6000);
-        }
-      }).catch(err=>{
-        if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
-        console.error('Gemini食物辨識網路錯誤',err);
-        showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
-      });
+      const descBlock=document.getElementById('food-desc-block');
+      if(descBlock)descBlock.style.display='block';
+      const analyzeBtn=document.getElementById('food-analyze-btn');
+      if(analyzeBtn){analyzeBtn.textContent='🔍 開始辨識';analyzeBtn.disabled=false;}
   };
   img.src=objUrl;
+}
+
+function analyzeFoodPhoto(){
+  if(!_foodAnalysisB64){showToast('請先選擇照片');return;}
+  const cfg2=getCfg();
+  const geminiKey=cfg2.geminiKey||'';
+  if(!geminiKey){showToast('請在設定中填入 Gemini API Key');return;}
+  const desc=(document.getElementById('food-desc-input')?.value||'').trim();
+  const nameInp=document.getElementById('food-name-input');
+  const analyzeBtn=document.getElementById('food-analyze-btn');
+  if(analyzeBtn){analyzeBtn.disabled=true;analyzeBtn.textContent='辨識中…';}
+  if(nameInp){nameInp.value='';nameInp.placeholder='🔍 AI 辨識中…';nameInp.disabled=true;}
+  ['food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{
+    const el=document.getElementById(id);if(el){el.value='';el.placeholder='…';}
+  });
+
+  const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信）："${desc}"。`:'';
+  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
+  fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{parts:[
+        {inline_data:{mime_type:'image/jpeg',data:_foodAnalysisB64}},
+        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），針對「照片中這整份」（不是每100g）逐項估算重量與營養素，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}`}
+      ]}],
+      generationConfig:{thinkingConfig:{thinkingBudget:0}}
+    })
+  }).then(r=>r.json()).then(data=>{
+    if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
+    if(analyzeBtn){analyzeBtn.disabled=false;analyzeBtn.textContent='🔄 重新辨識';}
+    ['food-kcal','food-protein','food-carbs','food-fat'].forEach(id=>{const el=document.getElementById(id);if(el)el.placeholder='—';});
+    // 支援 Gemini 直接回應格式（用第一個 { 到最後一個 } 擷取，避免 items 陣列內的巢狀 {} 被非貪婪比對截斷）
+    let parsed=null;
+    if(data.candidates&&data.candidates[0]){
+      const parts=data.candidates[0].content.parts;
+      const tp=parts.find(p=>!p.thought&&p.text)||parts[0];
+      let raw=(tp.text||'').trim().replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+      const first=raw.indexOf('{'),last=raw.lastIndexOf('}');
+      if(first>=0&&last>first){try{parsed=JSON.parse(raw.slice(first,last+1));}catch(e){}}
+    } else if(data.ok&&data.name){
+      parsed=data;
+    }
+    const items=parsed&&Array.isArray(parsed.items)?parsed.items:null;
+    const bdEl=document.getElementById('food-breakdown');
+    if(parsed&&items&&items.length){
+      const sum=(k)=>items.reduce((a,it)=>a+(parseFloat(it[k])||0),0);
+      if(nameInp)nameInp.value=parsed.name||items.map(it=>it.item).join('、');
+      const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=Math.round(v);};
+      set('food-kcal',sum('kcal'));set('food-protein',sum('protein'));
+      set('food-carbs',sum('carbs'));set('food-fat',sum('fat'));
+      set('food-portion',sum('grams'));
+      if(bdEl){
+        bdEl.style.display='block';
+        bdEl.innerHTML='逐項估算：'+items.map(it=>`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${Math.round(it.protein)||0}・碳水${Math.round(it.carbs)||0}・脂肪${Math.round(it.fat)||0}）`).join('<br>');
+      }
+      showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI逐項估算，僅供參考，誤差可能±20-30%）',4500);
+    } else if(parsed&&parsed.kcal!=null){
+      // 相容舊格式（沒有 items 陣列時退回單一總量）
+      if(nameInp)nameInp.value=parsed.name||'';
+      const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
+      set('food-kcal',parsed.kcal);set('food-protein',parsed.protein);
+      set('food-carbs',parsed.carbs);set('food-fat',parsed.fat);
+      if(parsed.grams)set('food-portion',Math.round(parsed.grams));
+      if(bdEl)bdEl.style.display='none';
+      showToast('✅ 辨識完成：'+(parsed.name||'食物')+'（AI估算，僅供參考，誤差可能±20-30%）',4000);
+    } else {
+      const reason=data&&data.error?(data.error.message||JSON.stringify(data.error)):'回應格式異常，請重試';
+      console.error('Gemini食物辨識失敗',data);
+      showToast('⚠️ 辨識失敗：'+reason,6000);
+    }
+  }).catch(err=>{
+    if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
+    if(analyzeBtn){analyzeBtn.disabled=false;analyzeBtn.textContent='🔍 開始辨識';}
+    console.error('Gemini食物辨識網路錯誤',err);
+    showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
+  });
 }
 
 function searchFood(q){
