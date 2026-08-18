@@ -1683,6 +1683,7 @@ function renderOverviewWeight(){
       <span class="ov-weight-sub" style="margin-top:0">距目標 ${cfg.targetWeight}kg</span>
       <span style="font-size:12px;font-weight:700;color:#f59e0b">${Math.abs(distToGoal)}kg</span>
     </div>`:''}
+    ${(()=>{const an=computeWeightGoalAnalysis(cfg);if(an.weeklyRate==null)return'';return`<div style="margin-top:6px;font-size:11.5px;color:rgba(240,236,228,.45)">📊 目前每週 ${an.weeklyRate>=0?'+':''}${an.weeklyRate}kg</div>`;})()}
   `;
 }
 
@@ -4515,7 +4516,10 @@ function saveWeight(slot){
   renderBodyGoalsUI();
   if(!document.getElementById('weight-list-body').hidden)renderWeightList();
   apiSaveWeight({date:dateStr,am:arr.find(d=>d.date===dateStr)?.am||null,pm:arr.find(d=>d.date===dateStr)?.pm||null});
-  showToast('✅ '+(slot==='am'?'🌅 早上':'🌙 晚上')+' 體重 '+kg+' kg（'+dateStr+'）已記錄');
+  renderOverviewWeight();
+  const an=computeWeightGoalAnalysis(getBodyCfg());
+  const rateTxt=(slot==='am'&&an.weeklyRate!=null)?`　目前每週${an.weeklyRate>=0?'+':''}${an.weeklyRate}kg`:'';
+  showToast('✅ '+(slot==='am'?'🌅 早上':'🌙 晚上')+' 體重 '+kg+' kg（'+dateStr+'）已記錄'+rateTxt,rateTxt?4000:2200);
 }
 
 function editWeightEntry(date){
