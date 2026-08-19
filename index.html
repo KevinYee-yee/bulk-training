@@ -2061,6 +2061,28 @@ function saveWorkout(){
     _coachActiveDay=null;
     _coachRxByName={};
     renderCoachCard();
+  }else{
+    // 沒有透過「開始這天訓練」的自由紀錄（例如從「新增」分頁直接打）：
+    // 比對這次動作組合最像課表哪一天，夠像的話也推進循環，避免首頁一直卡在沒更新的舊建議
+    const cycle=getCoachCycle();
+    const loggedNames=new Set(exercises.map(e=>e.name));
+    let bestIdx=-1,bestScore=0;
+    cycle.forEach((day,idx)=>{
+      const dayNames=day.exercises.map(e=>e.name);
+      if(!dayNames.length)return;
+      const overlap=dayNames.filter(n=>loggedNames.has(n)).length;
+      const score=overlap/dayNames.length;
+      if(score>bestScore){bestScore=score;bestIdx=idx;}
+    });
+    if(bestIdx>=0&&bestScore>=0.5){
+      const cs=getCoachState();
+      if(cs.lastDay!==bestIdx||date>cs.lastDate){
+        const newState={lastDay:bestIdx,lastDate:date};
+        saveCoachState(newState);
+        apiSaveCoachState(newState);
+        renderCoachCard();
+      }
+    }
   }
 }
 
