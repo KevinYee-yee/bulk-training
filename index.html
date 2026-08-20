@@ -714,6 +714,16 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   </div>
 </div>
 
+<!-- 飲食歷史單日詳情 bottom sheet -->
+<div class="create-menu-overlay" id="diet-day-detail-overlay" hidden onclick="if(event.target===this)closeDietDayDetail()">
+  <div class="create-menu-sheet">
+    <div id="diet-day-detail-title" style="font-size:18px;font-weight:800;color:#f0ece4;margin-bottom:4px">飲食紀錄</div>
+    <div id="diet-day-detail-summary" style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:14px"></div>
+    <div id="diet-day-detail-body"></div>
+    <button class="btn btn-ghost btn-full" style="margin-top:14px" onclick="closeDietDayDetail()">關閉</button>
+  </div>
+</div>
+
 <!-- 動作詳情／改名 bottom sheet -->
 <div class="create-menu-overlay" id="exercise-detail-overlay" hidden onclick="if(event.target===this)closeExerciseDetail()">
   <div class="create-menu-sheet">
@@ -4124,10 +4134,10 @@ function renderDietWeekSummary(){
   el.innerHTML=`
     <div style="font-size:11px;color:rgba(240,236,228,.4);margin-bottom:10px">本週已記錄 ${days.length}/7 天</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f0ece4">${Math.round(avg('kcal'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均kcal</div></div>
-      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#4ade80">${Math.round(avg('protein'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均蛋白g</div></div>
-      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#60a5fa">${Math.round(avg('carbs'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均碳水g</div></div>
-      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f472b6">${Math.round(avg('fat'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均脂肪g</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f0ece4">${Math.round(avg('kcal'))}<span style="font-size:10px;font-weight:400;color:rgba(240,236,228,.3)">/${cfg.goalKcal}</span></div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均kcal</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#4ade80">${Math.round(avg('protein'))}<span style="font-size:10px;font-weight:400;color:rgba(240,236,228,.3)">/${cfg.goalProtein}</span></div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均蛋白g</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#60a5fa">${Math.round(avg('carbs'))}<span style="font-size:10px;font-weight:400;color:rgba(240,236,228,.3)">/${cfg.goalCarbs}</span></div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均碳水g</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f472b6">${Math.round(avg('fat'))}<span style="font-size:10px;font-weight:400;color:rgba(240,236,228,.3)">/${cfg.goalFat}</span></div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均脂肪g</div></div>
     </div>
     <div style="font-size:11.5px;color:rgba(240,236,228,.5);line-height:1.6">🎯 熱量達標（±10%內）${kcalHitDays}/${days.length}天　・　蛋白質達標 ${proteinHitDays}/${days.length}天</div>
   `;
@@ -4153,7 +4163,7 @@ function renderDietHistory(){
     const tot=dietDayTotal(dietData[date]);
     const kcalColor=Math.abs(tot.kcal-cfg.goalKcal)<=cfg.goalKcal*0.1?'#4ade80':'rgba(240,236,228,.7)';
     const isEven=i%2===0;
-    return `<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616">
+    return `<div onclick="openDietDayDetail('${date}')" style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616;cursor:pointer">
       <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${date.slice(5)}</div>
       <div style="padding:8px 0;font-size:12px;color:${kcalColor};text-align:center;font-weight:700">${Math.round(tot.kcal)}</div>
       <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${Math.round(tot.protein)}</div>
@@ -4162,6 +4172,27 @@ function renderDietHistory(){
     </div>`;
   }).join('');
 }
+
+function openDietDayDetail(date){
+  const cfg=getBodyCfg();
+  const meals=getDietData()[date]||[];
+  const tot=dietDayTotal(meals);
+  document.getElementById('diet-day-detail-title').textContent=date;
+  document.getElementById('diet-day-detail-summary').textContent=
+    `${Math.round(tot.kcal)}/${cfg.goalKcal}kcal　蛋白${Math.round(tot.protein)}g　碳水${Math.round(tot.carbs)}g　脂肪${Math.round(tot.fat)}g`;
+  const bodyEl=document.getElementById('diet-day-detail-body');
+  bodyEl.innerHTML=meals.length?meals.map(m=>`
+    <div class="body-diet-item">
+      ${m.thumb?`<img src="${m.thumb}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0">`
+        :`<div style="width:44px;height:44px;background:#161616;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px">🍽️</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:#f0ece4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.name}</div>
+        <div style="font-size:11px;color:rgba(240,236,228,.4);margin-top:2px">${Math.round(m.kcal)} kcal &nbsp;蛋白 ${Math.round(m.protein)}g &nbsp;碳 ${Math.round(m.carbs)}g &nbsp;脂 ${Math.round(m.fat)}g</div>
+      </div>
+    </div>`).join(''):'<div class="empty" style="padding:16px 0">這天沒有飲食紀錄</div>';
+  showSheet('diet-day-detail-overlay');
+}
+function closeDietDayDetail(){hideSheet('diet-day-detail-overlay');}
 
 function renderWeightEntry(){
   const arr=getWeightData();
