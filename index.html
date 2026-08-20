@@ -578,7 +578,9 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
       <div class="calendar" id="calendar"></div>
       <p class="hint" style="margin-top:8px"><span style="display:inline-block;width:10px;height:10px;background:var(--p);border-radius:2px;margin-right:5px;vertical-align:middle"></span>訓練日</p>
     </div>
-    <div class="sec-title">動作重量進步</div>
+    <div class="sec-title">主項目訓練總量一覽</div>
+    <div id="ex-multi-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"></div>
+    <div class="sec-title">單一動作訓練總量進步</div>
     <div class="card">
       <div class="chart-filter">
         <button class="cf-btn" onclick="setChartRange('1m',this)">1個月</button>
@@ -596,7 +598,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
       <div class="chart-wrap"><canvas id="ex-chart"></canvas></div>
       <div id="chart-stats"></div>
     </div>
-    <div class="sec-title">每週訓練頻率</div>
+    <div class="sec-title">每週訓練總量</div>
     <div class="card" style="margin-bottom:100px">
       <div class="chart-wrap"><canvas id="freq-chart"></canvas></div>
     </div>
@@ -844,6 +846,24 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增飲食
     </button>
     <div id="diet-list" style="margin-top:10px"></div>
+    <div class="sec-title" style="margin-top:12px">本週飲食結算</div>
+    <div class="card" id="diet-week-card" style="padding:16px"></div>
+    <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+      <button onclick="toggleDietHistory()" id="diet-history-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:none;border:none;color:#f0ece4;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
+        <span>飲食歷史紀錄</span>
+        <span id="diet-history-arrow" style="color:rgba(240,236,228,.4);font-size:11px;transition:transform .2s">▼</span>
+      </button>
+      <div id="diet-history-body" hidden>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;padding:6px 16px 8px;gap:4px">
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px">日期</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">熱量</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">蛋白</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">碳水</div>
+          <div style="font-size:10px;font-weight:700;color:rgba(240,236,228,.3);letter-spacing:.4px;text-align:center">脂肪</div>
+        </div>
+        <div id="diet-history-rows"></div>
+      </div>
+    </div>
     <div class="sec-title" style="margin-top:12px">目標設定</div>
     <div class="card" id="body-goals-card" style="padding:16px"></div>
   </div>
@@ -1403,6 +1423,14 @@ function maxW(ex){
   if(!ws.length)return null;
   const pos=ws.filter(v=>v>0);
   return pos.length?Math.max(...pos):Math.max(...ws);
+}
+// 訓練總量＝Σ(重量×次數)，比「單組最大重量」更能反映整體訓練刺激（組數/次數的漸進也算進去，不是只看有沒有加重）
+function volumeLoad(ex){
+  let total=0,any=false;
+  ex.sets.forEach(s=>{
+    if(s.w!=null&&s.r!=null){total+=Math.abs(s.w)*s.r;any=true;}
+  });
+  return any?total:null;
 }
 function showToast(msg,duration){
   const t=document.getElementById('toast');
@@ -2090,7 +2118,7 @@ function saveWorkout(){
 let exChart=null,freqChart=null;
 let calOffset=0; // months from current
 function calShift(delta){calOffset+=delta;renderCal();}
-function renderCharts(){renderCal();populateSelect();renderExChart();renderFreq();}
+function renderCharts(){renderCal();populateSelect();renderExChart();renderExMultiGrid();renderFreq();}
 function renderCal(){
   const dateSet=new Set(WK.map(w=>w.date));
   const td=todayStr(),base=new Date();
@@ -2111,7 +2139,7 @@ function renderCal(){
 let chartExNames=[];
 function populateSelect(){
   const nm={};
-  WK.forEach(w=>w.exercises.forEach(ex=>{const mw=maxW(ex);if(mw!==null)nm[ex.name]=(nm[ex.name]||0)+1;}));
+  WK.forEach(w=>w.exercises.forEach(ex=>{const vl=volumeLoad(ex);if(vl!==null)nm[ex.name]=(nm[ex.name]||0)+1;}));
   chartExNames=Object.entries(nm).sort((a,b)=>b[1]-a[1]).map(([n])=>n);
   const hid=document.getElementById('ex-select');
   const inp=document.getElementById('ex-select-input');
@@ -2157,7 +2185,7 @@ function setChartRange(r,btn){
 function renderExChart(){
   const name=document.getElementById('ex-select').value;if(!name)return;
   let pts=[];
-  WK.forEach(w=>w.exercises.forEach(ex=>{if(ex.name===name){const mw=maxW(ex);if(mw!==null)pts.push({date:w.date,mw});}}));
+  WK.forEach(w=>w.exercises.forEach(ex=>{if(ex.name===name){const vl=volumeLoad(ex);if(vl!==null)pts.push({date:w.date,vl:Math.round(vl)});}}));
   pts.sort((a,b)=>a.date.localeCompare(b.date));
   if(chartRange!=='all'){
     const cut=new Date();
@@ -2173,26 +2201,61 @@ function renderExChart(){
   grad.addColorStop(0,'rgba(245,158,11,.32)');grad.addColorStop(1,'rgba(245,158,11,0)');
   exChart=new Chart(ctx,{type:'line',data:{
     labels:pts.map((_,i)=>'第'+(i+1)+'次'),
-    datasets:[{label:'最大重量',data:pts.map(p=>p.mw),borderColor:'#f59e0b',backgroundColor:grad,borderWidth:2.5,
+    datasets:[{label:'訓練總量',data:pts.map(p=>p.vl),borderColor:'#f59e0b',backgroundColor:grad,borderWidth:2.5,
       pointBackgroundColor:'#f59e0b',pointRadius:5,pointHoverRadius:7,fill:true,tension:.3}]
   },options:{responsive:true,maintainAspectRatio:false,
     plugins:{legend:{display:false},tooltip:{callbacks:{
       title:items=>`第${items[0].dataIndex+1}次（${fmtDate(pts[items[0].dataIndex].date)}）`,
-      label:ctx=>`${ctx.parsed.y} kg`
+      label:ctx=>`${ctx.parsed.y} kg·下`
     }}},
     scales:{x:{grid:{display:false},ticks:{font:{size:11},maxRotation:0,color:'rgba(254,249,238,.35)'}},
-      y:{grid:{color:'rgba(245,158,11,.08)'},ticks:{font:{size:11},callback:v=>v+'kg',color:'rgba(254,249,238,.35)'}}}}});
+      y:{grid:{color:'rgba(245,158,11,.08)'},ticks:{font:{size:11},callback:v=>v,color:'rgba(254,249,238,.35)'}}}}});
   const statsEl=document.getElementById('chart-stats');
   if(pts.length>=2){
-    const f=pts[0],l=pts[pts.length-1],diff=+(l.mw-f.mw).toFixed(1);
+    const f=pts[0],l=pts[pts.length-1],diff=l.vl-f.vl;
     const sign=diff>=0?'+':'';
-    const pct=f.mw!==0?((diff/f.mw)*100).toFixed(0):'-';
+    const pct=f.vl!==0?((diff/f.vl)*100).toFixed(0):'-';
     statsEl.innerHTML=`<div class="chart-stats">
-      <div class="cs-item"><div class="cs-num">${f.mw}kg</div><div class="cs-label">初始</div></div>
-      <div class="cs-item"><div class="cs-num" style="color:${diff>=0?'var(--green)':'var(--red)'}">${sign}${diff}kg（${sign}${pct}%）</div><div class="cs-label">進步幅度</div></div>
-      <div class="cs-item"><div class="cs-num">${l.mw}kg</div><div class="cs-label">目前</div></div>
+      <div class="cs-item"><div class="cs-num">${f.vl}</div><div class="cs-label">初始總量</div></div>
+      <div class="cs-item"><div class="cs-num" style="color:${diff>=0?'var(--green)':'var(--red)'}">${sign}${diff}（${sign}${pct}%）</div><div class="cs-label">進步幅度</div></div>
+      <div class="cs-item"><div class="cs-num">${l.vl}</div><div class="cs-label">目前總量</div></div>
     </div>`;
   }else statsEl.innerHTML='';
+}
+
+// 主項目訓練總量一覽：抓現行課表裡所有「主項目」動作，各自畫一個小圖表，一次看全部主項目的總量趨勢
+function renderExMultiGrid(){
+  const el=document.getElementById('ex-multi-grid');if(!el)return;
+  const cycle=getCoachCycle();
+  const primaryNames=[...new Set(cycle.flatMap(d=>d.exercises.filter(e=>e.cat==='主項目').map(e=>e.name)))];
+  const cards=primaryNames.map(name=>{
+    let pts=[];
+    WK.forEach(w=>w.exercises.forEach(ex=>{if(ex.name===name){const vl=volumeLoad(ex);if(vl!==null)pts.push({date:w.date,vl:Math.round(vl)});}}));
+    pts.sort((a,b)=>a.date.localeCompare(b.date));
+    if(pts.length<2)return null; // 資料太少畫不出趨勢，先不顯示這張卡，等累積更多次再自然出現
+    const f=pts[0].vl,l=pts[pts.length-1].vl,diff=l-f;
+    const sign=diff>=0?'+':'';
+    const pct=f!==0?((diff/f)*100).toFixed(0):'-';
+    const color=diff>=0?'#4ade80':'#f87171';
+    const cid='mini-'+name.replace(/[^a-zA-Z0-9一-鿿]/g,'');
+    return{name,pts,f,l,diff,sign,pct,color,cid};
+  }).filter(Boolean);
+  if(!cards.length){el.innerHTML='<div style="grid-column:1/-1;padding:14px;text-align:center;font-size:12.5px;color:rgba(240,236,228,.35)">主項目至少要有2次紀錄才會出現在這裡，繼續累積訓練紀錄</div>';return;}
+  el.innerHTML=cards.map(c=>`
+    <div class="card" style="padding:12px">
+      <div style="font-size:12px;font-weight:700;color:#f0ece4;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+      <div style="font-size:11px;color:${c.color};font-weight:700;margin-bottom:6px">${c.sign}${c.diff}（${c.sign}${c.pct}%）</div>
+      <div style="height:44px"><canvas id="${c.cid}"></canvas></div>
+    </div>`).join('');
+  cards.forEach(c=>{
+    const canvas=document.getElementById(c.cid);if(!canvas)return;
+    new Chart(canvas.getContext('2d'),{type:'line',data:{
+      labels:c.pts.map((_,i)=>i+1),
+      datasets:[{data:c.pts.map(p=>p.vl),borderColor:c.color,borderWidth:2,pointRadius:0,fill:false,tension:.3}]
+    },options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{x:{display:false},y:{display:false}}}});
+  });
 }
 function renderFreq(){
   if(freqChart){freqChart.destroy();freqChart=null;}
@@ -2201,16 +2264,17 @@ function renderFreq(){
     const d=new Date(w.date);const mon=new Date(d);
     const dow=d.getDay();mon.setDate(d.getDate()-(dow===0?6:dow-1));
     const wk=`${mon.getFullYear()}-${p2(mon.getMonth()+1)}-${p2(mon.getDate())}`;
-    wm[wk]=(wm[wk]||0)+1;
+    const sessionVl=w.exercises.reduce((a,ex)=>a+(volumeLoad(ex)||0),0);
+    wm[wk]=(wm[wk]||0)+sessionVl;
   });
   const wks=Object.keys(wm).sort();
   const ctx=document.getElementById('freq-chart').getContext('2d');
   freqChart=new Chart(ctx,{type:'bar',data:{
     labels:wks.map(w=>{const[,m,d]=w.split('-');return`${+m}/${+d}週`;}),
-    datasets:[{label:'次/週',data:wks.map(w=>wm[w]),backgroundColor:'rgba(245,158,11,.65)',borderRadius:6,borderSkipped:false}]
-  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    datasets:[{label:'總量/週',data:wks.map(w=>Math.round(wm[w])),backgroundColor:'rgba(245,158,11,.65)',borderRadius:6,borderSkipped:false}]
+  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y+' kg·下'}}},
     scales:{x:{grid:{display:false},ticks:{font:{size:11},color:'rgba(254,249,238,.35)'}},
-      y:{beginAtZero:true,ticks:{stepSize:1,font:{size:11},color:'rgba(254,249,238,.35)'},grid:{color:'rgba(245,158,11,.08)'}}}}});;
+      y:{beginAtZero:true,ticks:{font:{size:11},color:'rgba(254,249,238,.35)'},grid:{color:'rgba(245,158,11,.08)'}}}}});;
 }
 
 // ── 目標 & 成就 ──
@@ -3986,6 +4050,8 @@ function renderBodyTab(){
   renderWeightEntry();
   renderWeightChart2();
   renderDietList();
+  renderDietWeekSummary();
+  if(!document.getElementById('diet-history-body').hidden)renderDietHistory();
   renderBodyGoalsUI();
   const bpDateEl=document.getElementById('bp-date');
   if(bpDateEl&&!bpDateEl.value)bpDateEl.value=todayStr();
@@ -4029,6 +4095,72 @@ function _macroCell(label,val,goal,color){
     <div class="body-macro-bar"><div class="body-macro-fill" style="width:${pct}%;background:${color}"></div></div>
     <div style="font-size:10px;color:rgba(240,236,228,.22);margin-top:3px">/ ${goal}g</div>
   </div>`;
+}
+
+function dietDayTotal(meals){
+  const tot={kcal:0,protein:0,carbs:0,fat:0};
+  (meals||[]).forEach(m=>{tot.kcal+=(m.kcal||0);tot.protein+=(m.protein||0);tot.carbs+=(m.carbs||0);tot.fat+=(m.fat||0);});
+  return tot;
+}
+
+function renderDietWeekSummary(){
+  const el=document.getElementById('diet-week-card');if(!el)return;
+  const cfg=getBodyCfg();
+  const {monday,sunday}=getWeekRange(todayStr());
+  const dietData=getDietData();
+  const days=[];
+  for(let d=new Date(monday);d<=sunday;d.setDate(d.getDate()+1)){
+    const iso=dateToStr(d);
+    const meals=dietData[iso];
+    if(meals&&meals.length)days.push({date:iso,...dietDayTotal(meals)});
+  }
+  if(!days.length){
+    el.innerHTML='<div style="font-size:12.5px;color:rgba(240,236,228,.35);text-align:center;padding:8px 0">這週還沒有飲食紀錄</div>';
+    return;
+  }
+  const avg=k=>days.reduce((a,d)=>a+d[k],0)/days.length;
+  const kcalHitDays=days.filter(d=>Math.abs(d.kcal-cfg.goalKcal)<=cfg.goalKcal*0.1).length;
+  const proteinHitDays=days.filter(d=>d.protein>=cfg.goalProtein).length;
+  el.innerHTML=`
+    <div style="font-size:11px;color:rgba(240,236,228,.4);margin-bottom:10px">本週已記錄 ${days.length}/7 天</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f0ece4">${Math.round(avg('kcal'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均kcal</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#4ade80">${Math.round(avg('protein'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均蛋白g</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#60a5fa">${Math.round(avg('carbs'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均碳水g</div></div>
+      <div style="text-align:center"><div style="font-size:15px;font-weight:700;color:#f472b6">${Math.round(avg('fat'))}</div><div style="font-size:10px;color:rgba(240,236,228,.35)">平均脂肪g</div></div>
+    </div>
+    <div style="font-size:11.5px;color:rgba(240,236,228,.5);line-height:1.6">🎯 熱量達標（±10%內）${kcalHitDays}/${days.length}天　・　蛋白質達標 ${proteinHitDays}/${days.length}天</div>
+  `;
+}
+
+function toggleDietHistory(){
+  const body=document.getElementById('diet-history-body');
+  const arrow=document.getElementById('diet-history-arrow');
+  if(!body)return;
+  const open=body.hidden;
+  body.hidden=!open;
+  if(arrow)arrow.style.transform=open?'rotate(180deg)':'';
+  if(open)renderDietHistory();
+}
+
+function renderDietHistory(){
+  const el=document.getElementById('diet-history-rows');if(!el)return;
+  const cfg=getBodyCfg();
+  const dietData=getDietData();
+  const dates=Object.keys(dietData).filter(d=>dietData[d]&&dietData[d].length).sort((a,b)=>b.localeCompare(a));
+  if(!dates.length){el.innerHTML='<div style="padding:12px 16px;font-size:13px;color:rgba(240,236,228,.35)">尚無紀錄</div>';return;}
+  el.innerHTML=dates.map((date,i)=>{
+    const tot=dietDayTotal(dietData[date]);
+    const kcalColor=Math.abs(tot.kcal-cfg.goalKcal)<=cfg.goalKcal*0.1?'#4ade80':'rgba(240,236,228,.7)';
+    const isEven=i%2===0;
+    return `<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:4px;align-items:center;background:${isEven?'transparent':'rgba(255,255,255,.02)'};border-top:1px solid #161616">
+      <div style="padding:8px 0 8px 16px;font-size:12px;color:#f0ece4;font-weight:600">${date.slice(5)}</div>
+      <div style="padding:8px 0;font-size:12px;color:${kcalColor};text-align:center;font-weight:700">${Math.round(tot.kcal)}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${Math.round(tot.protein)}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${Math.round(tot.carbs)}</div>
+      <div style="padding:8px 0;font-size:12px;color:rgba(240,236,228,.7);text-align:center">${Math.round(tot.fat)}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderWeightEntry(){
