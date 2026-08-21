@@ -3606,7 +3606,7 @@ function computeCoachSuggestion(exDef){
     w=baseW0+exDef.inc;
     note='上次達標，這次加重';
   }else{
-    note='維持重量，衝到建議次數';
+    note=`上次${topReps}下，同重量挑戰更多次數，3組都到${exDef.rep}下才加重`;
   }
   const cs=getCoachState();
   if(cs.lastDate){
