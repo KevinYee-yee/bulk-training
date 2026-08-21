@@ -3599,21 +3599,26 @@ function computeCoachSuggestion(exDef){
   const rpes=sets.map(s=>s.rpe).filter(v=>v!==null&&v!==undefined);
   const maxRpe=rpes.length?Math.max(...rpes):null;
   // RPE 只在「有填而且超標」時才擋加重，沒填就看次數是否達標
-  let w=baseW0,note;
+  // r（顯示/預填的目標次數）不再一律秀雙重漸進上限（exDef.rep），而是依上次表現給「下一步」的實際數字，
+  // 避免明明上次只做到8-10下，畫面卻直接秀12讓人誤以為這次要硬做到12——上限12只在「3組都達標才加重」的判斷時使用
+  let w=baseW0,note,r;
   if(maxRpe!==null&&maxRpe>exDef.rpe){
-    note='上次RPE偏高，先維持重量';
+    r=topReps;
+    note=`上次RPE偏高(${maxRpe})，這次抓同樣${topReps}下、同重量，RPE降到${exDef.rpe}左右就好，不用衝次數`;
   }else if(topReps>=exDef.rep){
     w=baseW0+exDef.inc;
-    note='上次達標，這次加重';
+    r=null;
+    note='上次達標，這次加重，次數從頭累積';
   }else{
-    note=`上次${topReps}下，同重量挑戰更多次數，3組都到${exDef.rep}下才加重`;
+    r=Math.min(topReps+1,exDef.rep);
+    note=`上次${topReps}下，這次同重量挑戰${r}下以上，RPE抓${exDef.rpe}左右，3組都到${exDef.rep}下才加重`;
   }
   const cs=getCoachState();
   if(cs.lastDate){
     const gap=Math.round((new Date(todayStr())-new Date(cs.lastDate))/86400000);
-    if(gap>10){w=Math.round(w*0.85*2)/2;note='超過10天沒練，先降負荷';}
+    if(gap>10){w=Math.round(w*0.85*2)/2;r=null;note='超過10天沒練，先降負荷';}
   }
-  return{w,r:exDef.rep,rpe:exDef.rpe,note,last};
+  return{w,r,rpe:exDef.rpe,note,last};
 }
 // 統一組「這次建議」的顯示文字：徒手／輔助（只給RPE，重量看上次紀錄自己判斷）／一般（重量×次數@RPE）
 function coachSugText(ex,sug){
