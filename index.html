@@ -1974,7 +1974,7 @@ function addSet(exId){
     <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="w" value="${pw}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))">
         <div class="orm-hint" data-1rm></div></td>
     <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="r" value="${pr}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))"></td>
-    <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="rpe" style="font-size:13px" oninput="this.value=this.value.replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1');scheduleDraftSave()"></td>
+    <td><input class="set-inp" type="number" inputmode="decimal" step="0.5" autocomplete="off" placeholder="—" data-f="rpe" style="font-size:13px" oninput="scheduleDraftSave()"></td>
     <td><button class="check-btn" onclick="toggleSetDone(this)">○</button></td>
     <td><button style="background:none;border:none;color:#d1d5db;font-size:15px;padding:2px 4px;cursor:pointer" onclick="rmSet(this)">✕</button></td>`;
   tb.appendChild(tr);
