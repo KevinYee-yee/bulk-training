@@ -1992,7 +1992,7 @@ function onNameChange(inp,exId){
     const ex=s.exercises.find(e=>e.name===name);
     if(ex){
       const lp=document.getElementById('lp-'+exId);if(!lp)break;
-      const txt=ex.sets.map(st=>{let t='';if(st.w!=null)t+=st.w<0?`輔${Math.abs(st.w)}kg`:`${st.w}kg`;if(st.r)t+=`×${st.r}`;return t||'—';}).filter(Boolean).join(', ');
+      const txt=ex.sets.map(st=>{let t='';if(st.w!=null)t+=st.w<0?`輔${Math.abs(st.w)}kg`:`${st.w}kg`;if(st.r)t+=`×${st.r}`;if(st.rpe)t+=` R${st.rpe}`;return t||'—';}).filter(Boolean).join(', ');
       const lastMax=maxW(ex);
       let suggest='';
       if(lastMax&&lastMax>0){
