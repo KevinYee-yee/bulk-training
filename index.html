@@ -1974,7 +1974,7 @@ function addSet(exId){
     <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="w" value="${pw}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))">
         <div class="orm-hint" data-1rm></div></td>
     <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="r" value="${pr}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))"></td>
-    <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="rpe" style="font-size:13px" oninput="this.value=this.value.replace(/[^0-9]/g,'');scheduleDraftSave()"></td>
+    <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="rpe" style="font-size:13px" oninput="this.value=this.value.replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1');scheduleDraftSave()"></td>
     <td><button class="check-btn" onclick="toggleSetDone(this)">○</button></td>
     <td><button style="background:none;border:none;color:#d1d5db;font-size:15px;padding:2px 4px;cursor:pointer" onclick="rmSet(this)">✕</button></td>`;
   tb.appendChild(tr);
@@ -2069,7 +2069,7 @@ function saveWorkout(){
       return{
         w,
         r:row.querySelector('[data-f=r]').value!==''?parseInt(row.querySelector('[data-f=r]').value):null,
-        rpe:rpeRaw!==''?parseInt(rpeRaw):null,
+        rpe:rpeRaw!==''?parseFloat(rpeRaw):null,
         note:''
       };
     }).filter(s=>s.w!==null||s.r!==null);
@@ -3368,7 +3368,7 @@ function renderCoachExRow(day,di,ex,ei,opts){
     <div class="cc-ex-kg" style="${isBw?'display:none':''};display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:rgba(240,236,228,.5)">
       手動指定重量<input type="number" class="form-input" style="width:58px;margin-bottom:0" step="0.5" placeholder="自動" value="${ex.w??''}" oninput="updCoachEx(${di},${ei},'w',this.value===''?null:parseFloat(this.value))" onchange="refreshCoachSuggestionLine(${di},${ei})">kg
       　建議次數<input type="number" class="form-input" style="width:56px;margin-bottom:0" value="${ex.rep??''}" oninput="updCoachEx(${di},${ei},'rep',this.value===''?null:parseInt(this.value))" onchange="refreshCoachSuggestionLine(${di},${ei})">下
-      　建議RPE<input type="number" class="form-input" style="width:50px;margin-bottom:0" value="${ex.rpe??''}" oninput="updCoachEx(${di},${ei},'rpe',this.value===''?null:parseInt(this.value))" onchange="refreshCoachSuggestionLine(${di},${ei})">
+      　建議RPE<input type="number" step="0.5" class="form-input" style="width:50px;margin-bottom:0" value="${ex.rpe??''}" oninput="updCoachEx(${di},${ei},'rpe',this.value===''?null:parseFloat(this.value))" onchange="refreshCoachSuggestionLine(${di},${ei})">
       　每次加重<input type="number" class="form-input" style="width:58px;margin-bottom:0" step="0.5" value="${ex.inc??''}" oninput="updCoachEx(${di},${ei},'inc',parseFloat(this.value)||0)" onchange="refreshCoachSuggestionLine(${di},${ei})">kg
     </div>
     <div style="font-size:10px;color:rgba(240,236,228,.3);margin:2px 0 0">「手動指定重量」只要有填，菜單／教練頁一律直接顯示這個數字，不會自動用歷史紀錄推算；清空這欄才會恢復系統自動計算</div>
