@@ -4515,6 +4515,13 @@ function handleBPPhoto(input){
   img.src=objUrl;
 }
 
+// 原生fetch沒有內建逾時，網路卡住時Promise永遠不resolve/reject，重試邏輯完全不會被觸發、畫面會卡死在「辨識中」不會跳錯誤——
+// 用AbortController包一層逾時，逾時就視同失敗，讓下面既有的retry/catch邏輯接手
+function fetchWithTimeout(url,opts,ms){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),ms);
+  return fetch(url,{...opts,signal:ctrl.signal}).finally(()=>clearTimeout(t));
+}
 const BP_ANALYZE_MAX_RETRY=4;
 // 純函式：b64→{systolic,diastolic,hr,readable} 或 {error}，不碰 DOM，單張/多張辨識共用
 function analyzeBPImageB64(b64,retryCount){
@@ -4523,7 +4530,7 @@ function analyzeBPImageB64(b64,retryCount){
   const geminiKey=cfg2.geminiKey||'';
   if(!geminiKey)return Promise.resolve({error:'請在設定中填入 Gemini API Key'});
   const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
-  return fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+  return fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
         {inline_data:{mime_type:'image/jpeg',data:b64}},
@@ -4531,7 +4538,7 @@ function analyzeBPImageB64(b64,retryCount){
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:0}}
     })
-  }).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
+  },20000).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
     let parsed=null;
     if(data.candidates&&data.candidates[0]){
       const parts=data.candidates[0].content.parts;
@@ -5072,7 +5079,7 @@ function analyzeFoodPhoto(retryCount){
 
   const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信）："${desc}"。`:'';
   const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key='+geminiKey;
-  fetch(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+  fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
         {inline_data:{mime_type:'image/jpeg',data:_foodAnalysisB64}},
@@ -5080,7 +5087,7 @@ function analyzeFoodPhoto(retryCount){
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:0}}
     })
-  }).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
+  },20000).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
     // 支援 Gemini 直接回應格式（用第一個 { 到最後一個 } 擷取，避免 items 陣列內的巢狀 {} 被非貪婪比對截斷）
     let parsed=null;
     if(data.candidates&&data.candidates[0]){
@@ -5143,7 +5150,7 @@ function analyzeFoodPhoto(retryCount){
     if(nameInp){nameInp.disabled=false;nameInp.placeholder='食物名稱';}
     if(analyzeBtn){analyzeBtn.disabled=false;analyzeBtn.textContent='🔍 開始辨識';}
     console.error('Gemini食物辨識網路錯誤',err);
-    showToast('⚠️ 辨識失敗：'+(err&&err.message||'網路錯誤'),6000);
+    showToast('⚠️ 辨識失敗：'+(err&&err.name==='AbortError'?'連線逾時（20秒無回應）':(err&&err.message||'網路錯誤')),6000);
   });
 }
 
