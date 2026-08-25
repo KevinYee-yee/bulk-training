@@ -5139,7 +5139,7 @@ function analyzeFoodImageB64(b64,desc,retryCount){
         {inline_data:{mime_type:'image/jpeg',data:b64}},
         {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），針對「照片中這整份」（不是每100g）逐項估算重量與營養素，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}`}
       ]}],
-      generationConfig:{thinkingConfig:{thinkingBudget:0}}
+      generationConfig:{thinkingConfig:{thinkingBudget:1024}}
     })
   },30000).then(r=>r.json().then(data=>({status:r.status,data}))).then(({status,data})=>{
     // 支援 Gemini 直接回應格式（用第一個 { 到最後一個 } 擷取，避免 items 陣列內的巢狀 {} 被非貪婪比對截斷）
