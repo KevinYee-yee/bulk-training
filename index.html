@@ -963,6 +963,10 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
       <div><label class="form-label">脂肪(g)</label><input class="form-input" type="number" id="food-fat" placeholder="—" inputmode="decimal"></div>
     </div>
     <div id="food-breakdown" style="display:none;font-size:11.5px;color:rgba(240,236,228,.45);line-height:1.7;margin-bottom:14px;padding:10px 12px;background:#141414;border-radius:10px"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px;color:rgba(240,236,228,.6);cursor:pointer">
+      <input type="checkbox" id="food-fav-check" style="width:16px;height:16px;accent-color:#f59e0b">
+      加入常用清單（之後搜尋這個名字可直接套用，再依份量換算）
+    </label>
     <button id="food-save-btn" class="btn btn-primary" onclick="saveFoodEntry()">儲存飲食</button>
     <button class="btn btn-ghost btn-full" onclick="closeAddFood()" style="margin-top:8px">取消</button>
   </div>
@@ -1300,11 +1304,12 @@ async function flushPending(){
     else if(p.type==='exerciseRename')ok=await apiPost('renameExercise',{oldName:p.payload.oldName,newName:p.payload.newName});
     else if(p.type==='phaseState')ok=await apiPost('savePhaseState',{state:p.payload.state});
     else if(p.type==='coachSummaries')ok=await apiPost('saveCoachSummaries',{summaries:p.payload.summaries});
+    else if(p.type==='foodFavorites')ok=await apiPost('saveFoodFavorites',{favorites:p.payload.favorites});
     else if(p.type==='workout')ok=p.payload.op==='delete'?await apiPost('delete',{id:p.key}):await apiPost('add',{workout:p.payload.workout});
     if(ok)clearPending(p.type,p.key);
   }
   if(!getPending().length){
-    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBPFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS(),syncCoachSummariesFromGAS()]);
+    await Promise.all([apiLoad(),syncWeightFromGAS(),syncDietFromGAS(),syncCardioFromGAS(),syncBPFromGAS(),syncBodyCfgFromGAS(),syncCoachStateFromGAS(),syncCoachCycleFromGAS(),syncExerciseDBFromGAS(),syncExerciseInfoFromGAS(),syncPhaseStateFromGAS(),syncCoachSummariesFromGAS(),syncFoodFavoritesFromGAS()]);
     WK=getCache();
     renderOverview();renderFreqProgress();renderCardioProgress();
     if(!document.getElementById('tab-body').hidden)renderBodyTab();
@@ -4115,6 +4120,44 @@ function jumpToTodayDiet(){
 }
 function onDietDateChange(){renderDietList();renderTodaySummary();}
 
+// ── 常用飲食清單：每筆存per-100g營養素，套用時跟外部食物庫搜尋結果走同一套「份量(g)換算」邏輯 ──
+const FOOD_FAVORITES_KEY='bulk_food_favorites_v1';
+function getFoodFavorites(){try{return JSON.parse(localStorage.getItem(FOOD_FAVORITES_KEY)||'[]');}catch(e){return[];}}
+function saveFoodFavoritesData(arr){localStorage.setItem(FOOD_FAVORITES_KEY,JSON.stringify(arr));}
+async function apiSaveFoodFavorites(favorites){
+  const ok=await apiPost('saveFoodFavorites',{favorites});
+  if(ok)clearPending('foodFavorites','favorites');
+  else queuePending('foodFavorites','favorites',{favorites});
+}
+async function syncFoodFavoritesFromGAS(){
+  const url=getGASUrl();if(!url)return;
+  if(pendingKeys('foodFavorites').size)return;
+  try{
+    const res=await fetch(url+'?action=getFoodFavorites');
+    const json=await res.json();
+    if(json.ok&&Array.isArray(json.favorites))saveFoodFavoritesData(json.favorites);
+  }catch(e){}
+}
+// 把目前編輯畫面上的總量（依目前份量g）換算回per-100g存進常用清單；同名已存在就更新覆蓋，不重複新增
+function upsertFoodFavorite(name,kcal,protein,carbs,fat,grams){
+  const g=grams||100;
+  const f=100/g;
+  const favs=getFoodFavorites();
+  const rec={kcal100:Math.round(kcal*f),protein100:Math.round(protein*f*10)/10,carbs100:Math.round(carbs*f*10)/10,fat100:Math.round(fat*f*10)/10};
+  const idx=favs.findIndex(x=>x.name===name);
+  if(idx>=0)favs[idx]={...favs[idx],...rec};
+  else favs.push({id:uid(),name,...rec});
+  saveFoodFavoritesData(favs);
+  apiSaveFoodFavorites(favs);
+}
+function deleteFoodFavorite(id){
+  const favs=getFoodFavorites().filter(x=>x.id!==id);
+  saveFoodFavoritesData(favs);
+  apiSaveFoodFavorites(favs);
+  const dd=document.getElementById('food-dd');
+  if(dd)searchFood(document.getElementById('food-name-input')?.value||'');
+}
+
 // ── 體態 Tab 渲染 ──
 let _weightChart2=null;
 let _bodySubTab='weight';
@@ -5014,6 +5057,7 @@ function openAddFood(editIdx){
   document.getElementById('food-portion').value='100';
   document.getElementById('food-photo-preview').innerHTML='<div style="width:54px;height:54px;background:#161616;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;color:rgba(240,236,228,.2)">📷</div>';
   document.getElementById('food-dd').hidden=true;
+  const favCheck0=document.getElementById('food-fav-check');if(favCheck0)favCheck0.checked=false;
   const bdEl0=document.getElementById('food-breakdown');if(bdEl0){bdEl0.style.display='none';bdEl0.innerHTML='';}
   const descBlock0=document.getElementById('food-desc-block');if(descBlock0)descBlock0.style.display='none';
   const descInput0=document.getElementById('food-desc-input');if(descInput0)descInput0.value='';
@@ -5291,22 +5335,34 @@ function cancelFoodBatch(){
   const rowsEl=document.getElementById('food-batch-rows');if(rowsEl)rowsEl.innerHTML='';
 }
 
+let _foodFavMatches=[];
+function favMatchesHtml(q){
+  _foodFavMatches=getFoodFavorites().filter(f=>f.name.includes(q));
+  if(!_foodFavMatches.length)return'';
+  return _foodFavMatches.map((f,i)=>
+    `<div class="ex-dd-item" style="display:flex;align-items:center;justify-content:space-between" onmousedown="pickFavorite(${i})">
+      <span>⭐ ${f.name}<span style="font-size:10px;color:rgba(240,236,228,.28);margin-left:6px">${Math.round(f.kcal100)} kcal/100g</span></span>
+      <span onmousedown="event.stopPropagation();deleteFoodFavorite('${f.id}')" style="color:rgba(240,236,228,.3);padding:2px 6px;font-size:12px">✕</span>
+    </div>`).join('');
+}
 function searchFood(q){
   clearTimeout(_foodSearchTimer);
   const dd=document.getElementById('food-dd');
   if(!q||q.length<2){if(dd)dd.hidden=true;return;}
-  if(dd){dd.innerHTML='<div style="padding:10px 14px;font-size:12px;color:rgba(240,236,228,.35)">搜尋中…</div>';dd.hidden=false;}
+  const favHtml=favMatchesHtml(q);
+  if(dd){dd.innerHTML=favHtml+'<div style="padding:10px 14px;font-size:12px;color:rgba(240,236,228,.35)">搜尋中…</div>';dd.hidden=false;}
   _foodSearchTimer=setTimeout(async()=>{
     try{
       const r=await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,nutriments`);
       const data=await r.json();
       _foodSearchResults=(data.products||[]).filter(p=>p.product_name);
-      if(!_foodSearchResults.length){if(dd)dd.innerHTML='<div style="padding:10px 14px;font-size:13px;color:rgba(240,236,228,.35)">查無結果，請手動輸入</div>';return;}
-      if(dd)dd.innerHTML=_foodSearchResults.map((p,i)=>{
+      const extHtml=_foodSearchResults.length?_foodSearchResults.map((p,i)=>{
         const kcal=p.nutriments?.['energy-kcal_100g'];
         return `<div class="ex-dd-item" onmousedown="pickFood(${i})">${p.product_name}<span style="font-size:10px;color:rgba(240,236,228,.28);margin-left:6px">${kcal?Math.round(kcal)+' kcal/100g':''}</span></div>`;
-      }).join('');
-    }catch(e){if(dd)dd.innerHTML='<div style="padding:10px 14px;font-size:13px;color:rgba(240,236,228,.35)">搜尋失敗，請手動輸入</div>';}
+      }).join(''):'';
+      const combined=favHtml+extHtml;
+      if(dd)dd.innerHTML=combined||'<div style="padding:10px 14px;font-size:13px;color:rgba(240,236,228,.35)">查無結果，請手動輸入</div>';
+    }catch(e){if(dd)dd.innerHTML=favHtml||'<div style="padding:10px 14px;font-size:13px;color:rgba(240,236,228,.35)">搜尋失敗，請手動輸入</div>';}
   },450);
 }
 
@@ -5319,6 +5375,13 @@ function pickFood(i){
     fat100:p.nutriments?.fat_100g||0
   };
   document.getElementById('food-name-input').value=p.product_name;
+  document.getElementById('food-dd').hidden=true;
+  calcFoodNutrition();
+}
+function pickFavorite(i){
+  const f=_foodFavMatches[i];if(!f)return;
+  _foodPer100g={kcal100:f.kcal100,protein100:f.protein100,carbs100:f.carbs100,fat100:f.fat100};
+  document.getElementById('food-name-input').value=f.name;
   document.getElementById('food-dd').hidden=true;
   calcFoodNutrition();
 }
@@ -5340,6 +5403,10 @@ function saveFoodEntry(){
   const carbs=parseFloat(document.getElementById('food-carbs').value)||0;
   const fat=parseFloat(document.getElementById('food-fat').value)||0;
   const date=document.getElementById('food-date-input')?.value||getDietDateSel();
+  const portion=parseFloat(document.getElementById('food-portion').value)||100;
+  if(document.getElementById('food-fav-check')?.checked){
+    upsertFoodFavorite(name,kcal,protein,carbs,fat,portion);
+  }
   if(_editFoodIdx>=0&&_editFoodOrigDate&&date!==_editFoodOrigDate){
     // 換了日期：從原本那天移除，存進新的那天（同一筆id延續，不是刪掉重建）
     const origArr=getDietForDate(_editFoodOrigDate);
