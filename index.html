@@ -4595,7 +4595,7 @@ function analyzeBPImageB64(b64,retryCount){
   const cfg2=getCfg();
   const geminiKey=cfg2.geminiKey||'';
   if(!geminiKey)return Promise.resolve({error:'請在設定中填入 Gemini API Key'});
-  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+geminiKey;
+  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key='+geminiKey;
   return fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
@@ -5193,7 +5193,7 @@ function geminiIdentifyItems(b64,desc,retryCount){
   const geminiKey=cfg2.geminiKey||'';
   if(!geminiKey)return Promise.resolve({ok:false,error:'請在設定中填入 Gemini API Key'});
   const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信；如果裡面有提到實際吃掉的量，例如「吃了1/2」「去骨」「去皮」「剩一半沒吃」，一定要依照那個實際份量重新估算克數，不是估算照片裡完整那一份）："${desc}"。`:'';
-  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key='+geminiKey;
+  const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key='+geminiKey;
   return fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
