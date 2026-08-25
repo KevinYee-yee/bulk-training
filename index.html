@@ -124,7 +124,7 @@ textarea.form-input{resize:none}
 .step-item{display:flex;gap:10px;margin-bottom:10px;font-size:13px;line-height:1.6}
 .step-num{width:22px;height:22px;background:var(--p);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px}
 
-.toast{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-90px);background:#1e1b2e;color:#fff;padding:10px 22px;border-radius:30px;font-size:14px;transition:transform .28s ease;z-index:999;pointer-events:none;white-space:nowrap}
+.toast{position:fixed;top:calc(24px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%) translateY(-90px);background:#1e1b2e;color:#fff;padding:10px 22px;border-radius:18px;font-size:14px;transition:transform .28s ease;z-index:999;pointer-events:none;white-space:pre-wrap;max-width:calc(100vw - 40px);width:max-content;text-align:center;line-height:1.5}
 .toast.show{transform:translateX(-50%) translateY(0)}
 
 .empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:14px}
