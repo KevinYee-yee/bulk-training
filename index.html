@@ -5185,7 +5185,7 @@ function handleFoodPhotosMultiple(input){
   _foodBatchItems=files.map(f=>{
     const d=new Date(f.lastModified);
     const date=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
-    return{file:f,date,thumb:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending'};
+    return{file:f,date,thumb:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending',error:null};
   }).sort((a,b)=>a.date.localeCompare(b.date));
   document.getElementById('food-batch-title').textContent=`偵測到 ${files.length} 張照片，辨識中…`;
   document.getElementById('food-batch-review').style.display='block';
@@ -5201,10 +5201,10 @@ function handleFoodPhotosMultiple(input){
         item.name=result.name;item.kcal=result.kcal;item.protein=result.protein;
         item.carbs=result.carbs;item.fat=result.fat;item.status='ok';
       }else{
-        item.status='fail';
+        item.status='fail';item.error=(result&&result.error)||'未知錯誤';
       }
       updateFoodBatchRow(i);updateFoodBatchTitle();
-    }).catch(()=>{item.status='fail';updateFoodBatchRow(i);updateFoodBatchTitle();});
+    }).catch(err=>{item.status='fail';item.error=(err&&err.message)||'未知錯誤';updateFoodBatchRow(i);updateFoodBatchTitle();});
   });
   input.value='';
 }
@@ -5235,7 +5235,7 @@ function updateFoodBatchRow(i){
   set('food-batch-carbs-'+i,item.carbs);set('food-batch-fat-'+i,item.fat);
   const statusEl=document.getElementById('food-batch-status-'+i);
   if(statusEl){
-    if(item.status==='fail')statusEl.innerHTML='<span style="color:#f87171">⚠️ 辨識失敗，請手動輸入</span>';
+    if(item.status==='fail')statusEl.innerHTML='<span style="color:#f87171">⚠️ 辨識失敗：'+(item.error||'未知錯誤')+'，請手動輸入</span>';
     else if(item.status==='ok')statusEl.innerHTML='<span style="color:#4ade80">✅ 已辨識</span>';
   }
 }
