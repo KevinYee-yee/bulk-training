@@ -5185,14 +5185,14 @@ function handleFoodPhotosMultiple(input){
   _foodBatchItems=files.map(f=>{
     const d=new Date(f.lastModified);
     const date=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
-    return{file:f,date,thumb:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending',error:null};
+    return{file:f,date,thumb:null,b64:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending',error:null};
   }).sort((a,b)=>a.date.localeCompare(b.date));
   document.getElementById('food-batch-title').textContent=`偵測到 ${files.length} 張照片，辨識中…`;
   document.getElementById('food-batch-review').style.display='block';
   renderFoodBatchRowsInitial();
   _foodBatchItems.forEach((item,i)=>{
     fileToResizedB64(item.file).then(b64=>{
-      item.thumb='data:image/jpeg;base64,'+b64;
+      item.thumb='data:image/jpeg;base64,'+b64;item.b64=b64;
       const thumbEl=document.getElementById('food-batch-thumb-'+i);
       if(thumbEl)thumbEl.src=item.thumb;
       return analyzeFoodImageB64(b64,'');
@@ -5224,8 +5224,28 @@ function renderFoodBatchRowsInitial(){
         <input class="form-input" type="number" id="food-batch-carbs-${i}" placeholder="碳水" style="font-size:12px;padding:8px 4px">
         <input class="form-input" type="number" id="food-batch-fat-${i}" placeholder="脂肪" style="font-size:12px;padding:8px 4px">
       </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input class="form-input" id="food-batch-desc-${i}" placeholder="補充說明（例：去骨、去皮）" style="flex:1;font-size:11.5px;padding:6px 8px">
+        <button class="btn btn-ghost" style="padding:0 10px;font-size:11px;white-space:nowrap" onclick="reanalyzeFoodBatchRow(${i})">🔄重辨識</button>
+      </div>
       <div id="food-batch-status-${i}" style="font-size:10.5px;margin-top:4px;color:rgba(240,236,228,.35)">⏳ 辨識中…</div>
     </div>`).join('');
+}
+function reanalyzeFoodBatchRow(i){
+  const item=_foodBatchItems[i];if(!item||!item.b64)return;
+  const desc=(document.getElementById('food-batch-desc-'+i)?.value||'').trim();
+  const statusEl=document.getElementById('food-batch-status-'+i);
+  item.status='pending';
+  if(statusEl)statusEl.innerHTML='<span style="color:rgba(240,236,228,.35)">⏳ 重新辨識中…</span>';
+  analyzeFoodImageB64(item.b64,desc).then(result=>{
+    if(result&&result.ok){
+      item.name=result.name;item.kcal=result.kcal;item.protein=result.protein;
+      item.carbs=result.carbs;item.fat=result.fat;item.status='ok';item.error=null;
+    }else{
+      item.status='fail';item.error=(result&&result.error)||'未知錯誤';
+    }
+    updateFoodBatchRow(i);updateFoodBatchTitle();
+  }).catch(err=>{item.status='fail';item.error=(err&&err.message)||'未知錯誤';updateFoodBatchRow(i);updateFoodBatchTitle();});
 }
 function updateFoodBatchRow(i){
   const item=_foodBatchItems[i];if(!item)return;
