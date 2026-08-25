@@ -938,7 +938,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     </div>
     <div id="food-desc-block" style="display:none;margin-bottom:14px">
       <label class="form-label">補充說明（選填，AI看不準時幫它一把）</label>
-      <input class="form-input" id="food-desc-input" placeholder="例如：巧克力厚片、去皮雞胸、無糖豆漿">
+      <input class="form-input" id="food-desc-input" placeholder="例如：巧克力厚片、去皮雞胸、吃了1/2">
       <button id="food-analyze-btn" class="btn btn-primary btn-full" style="margin-top:8px" onclick="analyzeFoodPhoto()">🔍 開始辨識</button>
     </div>
     <label class="form-label">食物名稱</label>
@@ -5150,13 +5150,13 @@ function analyzeFoodImageB64(b64,desc,retryCount){
   const cfg2=getCfg();
   const geminiKey=cfg2.geminiKey||'';
   if(!geminiKey)return Promise.resolve({ok:false,error:'請在設定中填入 Gemini API Key'});
-  const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信）："${desc}"。`:'';
+  const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信；如果裡面有提到實際吃掉的量，例如「吃了1/2」「去骨」「去皮」「剩一半沒吃」，一定要依照那個實際份量重新估算，不是估算照片裡完整那一份）："${desc}"。`:'';
   const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+geminiKey;
   return fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
         {inline_data:{mime_type:'image/jpeg',data:b64}},
-        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），針對「照片中這整份」（不是每100g）逐項估算重量與營養素，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}`}
+        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），預設針對「照片中這整份」（不是每100g）逐項估算重量與營養素——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新計算，不要無視補充說明直接算整份，以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}`}
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:1024}}
     })
@@ -5286,8 +5286,8 @@ function renderFoodBatchRowsInitial(){
         <input class="form-input" type="number" id="food-batch-fat-${i}" placeholder="脂肪" style="font-size:12px;padding:8px 4px">
       </div>
       <div style="display:flex;gap:6px;margin-top:6px">
-        <input class="form-input" id="food-batch-desc-${i}" placeholder="補充說明（例：去骨、去皮）" style="flex:1;font-size:11.5px;padding:6px 8px">
-        <button class="btn btn-primary" id="food-batch-start-${i}" disabled style="padding:0 10px;font-size:11px;white-space:nowrap" onclick="reanalyzeFoodBatchRow(${i})">▶️開始辨識</button>
+        <input class="form-input" id="food-batch-desc-${i}" placeholder="補充說明（例：去骨、去皮、吃了1/2）" style="flex:1 1 0%;min-width:0;width:auto;font-size:11.5px;padding:6px 8px">
+        <button class="btn btn-primary" id="food-batch-start-${i}" disabled style="flex:0 0 auto;padding:0 10px;font-size:11px;white-space:nowrap" onclick="reanalyzeFoodBatchRow(${i})">▶️開始辨識</button>
       </div>
       <div id="food-batch-status-${i}" style="font-size:10.5px;margin-top:4px;color:rgba(240,236,228,.35)">照片處理中…</div>
     </div>`).join('');
