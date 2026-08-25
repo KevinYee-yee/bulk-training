@@ -498,6 +498,9 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <label class="form-label" style="margin-top:12px">Gemini API Key（拍照辨識食物用）</label>
     <input class="form-input" id="gemini-key-input" placeholder="貼上你的 Gemini API Key" autocomplete="off">
     <div style="font-size:12px;color:rgba(240,236,228,.35);margin-top:4px">從 <strong>aistudio.google.com/apikey</strong> 取得</div>
+    <label class="form-label" style="margin-top:12px">USDA FoodData Central API Key（食物營養資料庫查詢用）</label>
+    <input class="form-input" id="usda-key-input" placeholder="貼上你的 USDA API Key" autocomplete="off">
+    <div style="font-size:12px;color:rgba(240,236,228,.35);margin-top:4px">從 <strong>fdc.nal.usda.gov/api-key-signup</strong> 免費申請</div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveGASUrl()">連線並同步</button>
       <button class="btn btn-ghost btn-full" onclick="skipSetup()">暫不設定（僅本地儲存）</button>
@@ -1537,6 +1540,8 @@ function openSetup(){
   document.getElementById('gas-input').value=getGASUrl();
   const gk=document.getElementById('gemini-key-input');
   if(gk)gk.value=getCfg().geminiKey||'';
+  const uk=document.getElementById('usda-key-input');
+  if(uk)uk.value=getCfg().usdaKey||'';
   showSheet('setup-modal');
 }
 function skipSetup(){
@@ -1548,8 +1553,10 @@ async function saveGASUrl(){
   const url=document.getElementById('gas-input').value.trim();
   if(!url){showToast('請貼上網址');return;}
   const geminiKeyEl=document.getElementById('gemini-key-input');
+  const usdaKeyEl=document.getElementById('usda-key-input');
   const cfg=getCfg();cfg.gasUrl=url;cfg.setupSeen=true;
   if(geminiKeyEl&&geminiKeyEl.value.trim())cfg.geminiKey=geminiKeyEl.value.trim();
+  if(usdaKeyEl&&usdaKeyEl.value.trim())cfg.usdaKey=usdaKeyEl.value.trim();
   saveCfg(cfg);
   hideSheet('setup-modal');
   showToast('連線測試中…');
@@ -5144,19 +5151,54 @@ function handleFoodPhoto(input){
 }
 
 const FOOD_ANALYZE_MAX_RETRY=4;
-// 純函式：b64(+選填說明)→{ok:true,name,kcal,protein,carbs,fat,grams,items} 或 {ok:false,error,isOverload}，不碰DOM，單張/批次辨識共用
-function analyzeFoodImageB64(b64,desc,retryCount){
+// ── 三角色食物辨識架構（2026-08-26）──
+// 角色1「視覺辨識員」：Gemini只負責認出品項＋估重量(克)，補充說明的份量調整在這一步就處理掉，完全不碰營養數字
+// 角色2「營養資料庫查詢員」：拿角色1的英文品名去查真實的USDA FoodData Central，不是AI用訓練記憶猜
+// 角色3「計算員」：純JS乘加法，per-100g數值 × 克數/100，不假手AI心算
+// 這樣拆分是因為過去單一AI一次全包（辨識+估重+回想營養值+套用份量+加總）常常在其中一環出錯，
+// 尤其「使用者說吃了一半」這種份量調整常被後面的營養估算蓋掉，而且AI對帶皮/肥瘦混合的肉類營養值印象常常不準
+
+// 角色2：查USDA FoodData Central，回傳{ok,matched,fdcId,kcal100,protein100,carbs100,fat100}或{ok:false,error}
+function usdaLookup(nameEn){
+  const cfg2=getCfg();
+  const usdaKey=cfg2.usdaKey||'';
+  if(!usdaKey)return Promise.resolve({ok:false,error:'未設定USDA API Key'});
+  const url=`https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(nameEn)}&api_key=${encodeURIComponent(usdaKey)}&pageSize=5`;
+  return fetchWithTimeout(url,{method:'GET'},15000).then(r=>r.json()).then(data=>{
+    const foods=data.foods||[];
+    if(!foods.length)return{ok:false,error:'USDA查無對應項目："'+nameEn+'"'};
+    const getNutrient=(food,num)=>{
+      const n=(food.foodNutrients||[]).find(x=>String(x.nutrientNumber)===num);
+      return n?parseFloat(n.value):null;
+    };
+    // 有些資料庫項目（尤其Foundation生鮮類）搜尋結果裡熱量欄位是缺的，這種殘缺資料先濾掉，不然會算出0大卡的錯誤結果
+    const candidates=foods.map(f=>({
+      food:f,kcal:getNutrient(f,'208'),protein:getNutrient(f,'203'),
+      fat:getNutrient(f,'204'),carbs:getNutrient(f,'205')
+    })).filter(c=>c.kcal!=null&&c.kcal>0);
+    if(!candidates.length)return{ok:false,error:'USDA查到的品項都缺少完整營養數據："'+nameEn+'"'};
+    // 實測發現：強行偏好Foundation/SR Legacy有時反而選到不相關的項目（例如查豬肉卻選到雞皮），
+    // USDA自己的搜尋相關性排序其實比較準，改成信任它的順序，只挑第一筆資料完整的
+    const pick=candidates[0];
+    return{ok:true,matched:pick.food.description,fdcId:pick.food.fdcId,
+      kcal100:pick.kcal,protein100:pick.protein||0,
+      fat100:pick.fat||0,carbs100:Math.max(0,pick.carbs||0)};
+  }).catch(err=>({ok:false,error:(err&&err.message)||'USDA查詢失敗'}));
+}
+
+// 角色1：Gemini視覺辨識，只回傳品項+英文對照名+克數，不含營養數字
+function geminiIdentifyItems(b64,desc,retryCount){
   retryCount=retryCount||0;
   const cfg2=getCfg();
   const geminiKey=cfg2.geminiKey||'';
   if(!geminiKey)return Promise.resolve({ok:false,error:'請在設定中填入 Gemini API Key'});
-  const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信；如果裡面有提到實際吃掉的量，例如「吃了1/2」「去骨」「去皮」「剩一半沒吃」，一定要依照那個實際份量重新估算，不是估算照片裡完整那一份）："${desc}"。`:'';
+  const descLine=desc?`使用者補充說明（視覺不確定時以這個為準，優先採信；如果裡面有提到實際吃掉的量，例如「吃了1/2」「去骨」「去皮」「剩一半沒吃」，一定要依照那個實際份量重新估算克數，不是估算照片裡完整那一份）："${desc}"。`:'';
   const geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key='+geminiKey;
   return fetchWithTimeout(geminiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents:[{parts:[
         {inline_data:{mime_type:'image/jpeg',data:b64}},
-        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），預設針對「照片中這整份」（不是每100g）逐項估算重量與營養素——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新計算，不要無視補充說明直接算整份。遇到帶皮/肥瘦混合的肉類（例如控肉、五花肉、豬腳、雞腿排帶皮）時特別注意：蛋白質不是只看瘦肉纖維多寡就好，皮的部分幾乎是純膠原蛋白、蛋白質密度很高（約每100g皮20-25g蛋白質），要分開估算「皮」「瘦肉」「純肥肉」三部分各自的重量與蛋白質密度再加總，不要只用整塊肉的視覺肥瘦比例籠統套一個蛋白質數字，也不要因為肥肉比例高就把蛋白質估得過低（皮跟瘦肉的蛋白質不會因為旁邊肥肉多而變少）。以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item":"品項名稱","grams":這個品項重量估計整數,"kcal":這個品項熱量整數,"protein":這個品項蛋白質g整數,"carbs":這個品項碳水g整數,"fat":這個品項脂肪g整數}]}`}
+        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），預設針對「照片中這整份」（不是每100g）估算每個品項的重量——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新估算克數，不要無視補充說明直接算整份。你**不用**估算熱量或營養素，那部分會另外查真實資料庫，你只需要負責「這是什麼」跟「重量多少克」。品項的英文名稱要用USDA食品資料庫查得到的**簡短、通用**寫法，不要加太多限定詞（實測加越多修飾詞如cooked/braised/with skin反而越容易配到不相關的項目）：只寫食材本身的基本名稱＋部位，例如帶皮滷五花肉直接寫"pork belly"、去骨雞腿排寫"chicken thigh"、白飯寫"white rice"，去皮/帶皮這種細節留給重量估算去反映（例如去皮就少估一點重量），不要塞進英文名稱裡。以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item_zh":"品項中文名稱","item_en":"適合查USDA資料庫的具體英文名稱","grams":這個品項重量估計整數}]}`}
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:1024}}
     })
@@ -5174,32 +5216,62 @@ function analyzeFoodImageB64(b64,desc,retryCount){
     }
     const items=parsed&&Array.isArray(parsed.items)?parsed.items:null;
     if(parsed&&items&&items.length){
-      const sum=(k)=>items.reduce((a,it)=>a+(parseFloat(it[k])||0),0);
-      return{ok:true,name:parsed.name||items.map(it=>it.item).join('、'),
-        kcal:Math.round(sum('kcal')),protein:Math.round(sum('protein')),
-        carbs:Math.round(sum('carbs')),fat:Math.round(sum('fat')),
-        grams:Math.round(sum('grams')),items};
-    } else if(parsed&&parsed.kcal!=null){
-      // 相容舊格式（沒有 items 陣列時退回單一總量）
-      return{ok:true,name:parsed.name||'',kcal:parsed.kcal,protein:parsed.protein,
-        carbs:parsed.carbs,fat:parsed.fat,grams:parsed.grams?Math.round(parsed.grams):null,items:null};
-    } else {
-      const errMsg=(data&&data.error&&(data.error.message||data.error.status))||'';
-      const isOverload=status===503||status===429||/overload|unavailable|high demand|quota/i.test(errMsg);
-      if(isOverload&&retryCount<FOOD_ANALYZE_MAX_RETRY){
-        return new Promise(res=>setTimeout(res,Math.min(1500*Math.pow(2,retryCount),8000)))
-          .then(()=>analyzeFoodImageB64(b64,desc,retryCount+1));
-      }
-      console.error('Gemini食物辨識失敗',data);
-      return{ok:false,error:errMsg||'回應格式異常，請重試',isOverload};
+      return{ok:true,name:parsed.name||items.map(it=>it.item_zh).join('、'),items};
     }
+    const errMsg=(data&&data.error&&(data.error.message||data.error.status))||'';
+    const isOverload=status===503||status===429||/overload|unavailable|high demand|quota/i.test(errMsg);
+    if(isOverload&&retryCount<FOOD_ANALYZE_MAX_RETRY){
+      return new Promise(res=>setTimeout(res,Math.min(1500*Math.pow(2,retryCount),8000)))
+        .then(()=>geminiIdentifyItems(b64,desc,retryCount+1));
+    }
+    console.error('Gemini食物辨識失敗',data);
+    return{ok:false,error:errMsg||'回應格式異常，請重試',isOverload};
   }).catch(err=>{
     if(retryCount<FOOD_ANALYZE_MAX_RETRY){
       return new Promise(res=>setTimeout(res,Math.min(1500*Math.pow(2,retryCount),8000)))
-        .then(()=>analyzeFoodImageB64(b64,desc,retryCount+1));
+        .then(()=>geminiIdentifyItems(b64,desc,retryCount+1));
     }
     console.error('Gemini食物辨識網路錯誤',err);
-    return{ok:false,error:err&&err.name==='AbortError'?'連線逾時（20秒無回應）':(err&&err.message||'網路錯誤')};
+    return{ok:false,error:err&&err.name==='AbortError'?'連線逾時（30秒無回應）':(err&&err.message||'網路錯誤')};
+  });
+}
+
+// 對外唯一入口，維持跟舊版一樣的回傳格式（單張/批次辨識共用），內部改成角色1→角色2→角色3三步驟
+function analyzeFoodImageB64(b64,desc,retryCount){
+  const cfg2=getCfg();
+  if(!cfg2.usdaKey)return Promise.resolve({ok:false,error:'請在設定中填入 USDA API Key（fdc.nal.usda.gov免費申請）'});
+  return geminiIdentifyItems(b64,desc,retryCount).then(idResult=>{
+    if(!idResult.ok)return idResult;
+    // 角色2：每個品項平行查USDA；角色3：per-100g × 克數/100，純JS數學
+    return Promise.all(idResult.items.map(it=>{
+      const grams=parseFloat(it.grams)||0;
+      return usdaLookup(it.item_en||it.item_zh).then(nutri=>{
+        const f=grams/100;
+        if(!nutri.ok){
+          return{item:it.item_zh,grams,kcal:0,protein:0,carbs:0,fat:0,error:nutri.error};
+        }
+        return{item:it.item_zh,grams,
+          kcal:Math.round(nutri.kcal100*f),
+          protein:Math.round(nutri.protein100*f*10)/10,
+          carbs:Math.round(nutri.carbs100*f*10)/10,
+          fat:Math.round(nutri.fat100*f*10)/10,
+          matched:nutri.matched};
+      });
+    })).then(computedItems=>{
+      const sum=(k)=>computedItems.reduce((a,it)=>a+(it[k]||0),0);
+      const failedItems=computedItems.filter(it=>it.error);
+      return{
+        ok:true,
+        name:idResult.name,
+        kcal:Math.round(sum('kcal')),
+        protein:Math.round(sum('protein')*10)/10,
+        carbs:Math.round(sum('carbs')*10)/10,
+        fat:Math.round(sum('fat')*10)/10,
+        grams:Math.round(computedItems.reduce((a,it)=>a+(it.grams||0),0)),
+        items:computedItems,
+        warning:failedItems.length?`${failedItems.length}個品項查無USDA資料庫對應（${failedItems.map(it=>it.item).join('、')}），該項數值為0，請手動補上`:null
+      };
+    });
   });
 }
 // 單張照片流程用的DOM包裝：呼叫上面的純函式，結果寫回編輯畫面的欄位
@@ -5227,10 +5299,14 @@ function analyzeFoodPhoto(){
       if(bdEl){
         if(result.items){
           bdEl.style.display='block';
-          bdEl.innerHTML='逐項估算：'+result.items.map(it=>`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${Math.round(it.protein)||0}・碳水${Math.round(it.carbs)||0}・脂肪${Math.round(it.fat)||0}）`).join('<br>');
+          bdEl.innerHTML='逐項估算（營養值查自USDA資料庫）：<br>'+result.items.map(it=>
+            it.error
+              ?`${it.item} ${Math.round(it.grams)||'?'}g（⚠️${it.error}，需手動補）`
+              :`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${it.protein}・碳水${it.carbs}・脂肪${it.fat}）${it.matched?`<span style="opacity:.5">［${it.matched}］</span>`:''}`
+          ).join('<br>');
         } else bdEl.style.display='none';
       }
-      showToast('✅ 辨識完成：'+(result.name||'食物')+'（AI估算，僅供參考，誤差可能±20-30%）',4500);
+      showToast('✅ 辨識完成：'+(result.name||'食物')+(result.warning?'（'+result.warning+'）':'（品項由AI辨識，營養值查自USDA資料庫）'),5000);
     } else {
       showToast('⚠️ 辨識失敗：'+result.error+(result.isOverload?'（已重試'+FOOD_ANALYZE_MAX_RETRY+'次仍失敗，稍後再試看看）':''),6000);
     }
@@ -5304,6 +5380,7 @@ function reanalyzeFoodBatchRow(i){
     if(result&&result.ok){
       item.name=result.name;item.kcal=result.kcal;item.protein=result.protein;
       item.carbs=result.carbs;item.fat=result.fat;item.status='ok';item.error=null;
+      item.warning=result.warning||null;
     }else{
       item.status='fail';item.error=(result&&result.error)||'未知錯誤';
     }
@@ -5324,7 +5401,8 @@ function updateFoodBatchRow(i){
   const statusEl=document.getElementById('food-batch-status-'+i);
   if(statusEl){
     if(item.status==='fail')statusEl.innerHTML='<span style="color:#f87171">⚠️ 辨識失敗：'+(item.error||'未知錯誤')+'，請手動輸入</span>';
-    else if(item.status==='ok')statusEl.innerHTML='<span style="color:#4ade80">✅ 已辨識</span>';
+    else if(item.status==='ok'&&item.warning)statusEl.innerHTML='<span style="color:#fbbf24">⚠️ '+item.warning+'</span>';
+    else if(item.status==='ok')statusEl.innerHTML='<span style="color:#4ade80">✅ 已辨識（USDA資料庫）</span>';
   }
 }
 function updateFoodBatchTitle(){
