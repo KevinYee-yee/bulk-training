@@ -5652,7 +5652,7 @@ function showAppUpdateBanner(){
   b.id='app-update-banner';
   b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#080808;text-align:center;padding:calc(10px + env(safe-area-inset-top,0px)) 10px 10px;font-size:13px;font-weight:800;cursor:pointer';
   b.textContent='🔄 有新版本可用，點此更新';
-  b.onclick=()=>{location.href=location.pathname+'?_v='+Date.now();};
+  b.onclick=()=>{location.replace(location.pathname+'?_v='+Date.now()+'-'+Math.random().toString(36).slice(2));};
   document.body.appendChild(b);
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkForAppUpdate();});
@@ -5662,13 +5662,18 @@ checkForAppUpdate();
 function manualCheckUpdate(){
   const btn=document.getElementById('ov-refresh-btn');
   if(btn)btn.classList.add('spinning');
+  // 加到主畫面的網頁App在iOS上有時候快取比一般Safari分頁更頑固，query string防快取不一定every次都有效，
+  // 這裡改用location.replace（不留history紀錄）+ 時間戳記混隨機字串的網址，盡量提高繞過快取的機率；
+  // 不動localStorage，草稿/歷史紀錄不受影響——重新整理程式碼跟本機資料是完全獨立的兩件事
   fetch(location.pathname+'?_chk='+Date.now(),{cache:'no-store'}).then(res=>{
     const tag=res.headers.get('etag')||res.headers.get('last-modified');
     if(btn)btn.classList.remove('spinning');
     if(!tag){showToast('⚠️ 無法確認版本，請檢查網路連線',3000);return;}
     if(_appVersionTag!==null&&tag!==_appVersionTag){
-      showToast('🔄 發現新版本，正在更新…',2000);
-      setTimeout(()=>{location.href=location.pathname+'?_v='+Date.now();},600);
+      showToast('🔄 發現新版本，正在更新…（不會動到已存的草稿/紀錄）',2500);
+      setTimeout(()=>{
+        location.replace(location.pathname+'?_v='+Date.now()+'-'+Math.random().toString(36).slice(2));
+      },600);
     }else{
       _appVersionTag=tag;
       showToast('✅ 已經是最新版本',2000);
