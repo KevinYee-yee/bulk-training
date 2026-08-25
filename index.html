@@ -4661,6 +4661,25 @@ function fileToResizedB64(file){
     img.src=objUrl;
   });
 }
+// 縮圖用（160px，存進紀錄長期保留）——跟上面800px的分析用圖是分開的，
+// 存檔用小圖是為了避免localStorage塞爆：批次上傳好幾張時如果每筆都存800px的完整分析圖，很容易超過localStorage容量上限，
+// setItem會直接拋例外（QuotaExceededError），存檔函式因此整個中斷、畫面上完全沒有任何提示（這是2026-08-25真的發生過的bug）
+function fileToSmallThumb(file){
+  return new Promise((resolve,reject)=>{
+    const objUrl=URL.createObjectURL(file);
+    const img=new Image();
+    img.onerror=()=>{URL.revokeObjectURL(objUrl);reject(new Error('圖片讀取失敗'));};
+    img.onload=()=>{
+      URL.revokeObjectURL(objUrl);
+      const thumb=document.createElement('canvas');
+      const ts=Math.min(160/img.width,160/img.height);
+      thumb.width=Math.round(img.width*ts);thumb.height=Math.round(img.height*ts);
+      thumb.getContext('2d').drawImage(img,0,0,thumb.width,thumb.height);
+      resolve(thumb.toDataURL('image/jpeg',0.75));
+    };
+    img.src=objUrl;
+  });
+}
 
 // ── 多張血壓計照片一次上傳：用照片本身的拍攝時間(file.lastModified)自動判斷每筆的日期/時間 ──
 let _bpBatchItems=[];
@@ -5221,6 +5240,8 @@ function analyzeFoodPhoto(){
 // ── 多張食物照片一次上傳：一餐拍好幾張，各自獨立辨識、各自變成一筆飲食紀錄（不合併）──
 // 跟血壓的多張上傳同一套架構：用照片拍攝時間(file.lastModified)自動判斷日期，平行辨識，跳出審核清單確認後一次全存
 let _foodBatchItems=[];
+// 選完照片先只算縮圖（存檔用160px小圖+辨識用800px大圖），不自動打Gemini——
+// 讓使用者先補「補充說明」（例：去骨）再按每一列自己的「開始辨識」，一張只送一次分析請求
 function handleFoodPhotosMultiple(input){
   const files=Array.from(input.files||[]);
   if(!files.length)return;
@@ -5229,26 +5250,22 @@ function handleFoodPhotosMultiple(input){
   _foodBatchItems=files.map(f=>{
     const d=new Date(f.lastModified);
     const date=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
-    return{file:f,date,thumb:null,b64:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending',error:null};
+    return{file:f,date,thumb:null,smallThumb:null,b64:null,name:'',kcal:null,protein:null,carbs:null,fat:null,status:'pending',error:null};
   }).sort((a,b)=>a.date.localeCompare(b.date));
-  document.getElementById('food-batch-title').textContent=`偵測到 ${files.length} 張照片，辨識中…`;
+  document.getElementById('food-batch-title').textContent=`偵測到 ${files.length} 張照片，補充說明後按每一列的「開始辨識」`;
   document.getElementById('food-batch-review').style.display='block';
   renderFoodBatchRowsInitial();
   _foodBatchItems.forEach((item,i)=>{
-    fileToResizedB64(item.file).then(b64=>{
-      item.thumb='data:image/jpeg;base64,'+b64;item.b64=b64;
+    Promise.all([fileToResizedB64(item.file),fileToSmallThumb(item.file)]).then(([b64,smallThumb])=>{
+      item.b64=b64;item.smallThumb=smallThumb;item.thumb='data:image/jpeg;base64,'+b64;
       const thumbEl=document.getElementById('food-batch-thumb-'+i);
       if(thumbEl)thumbEl.src=item.thumb;
-      return analyzeFoodImageB64(b64,'');
-    }).then(result=>{
-      if(result&&result.ok){
-        item.name=result.name;item.kcal=result.kcal;item.protein=result.protein;
-        item.carbs=result.carbs;item.fat=result.fat;item.status='ok';
-      }else{
-        item.status='fail';item.error=(result&&result.error)||'未知錯誤';
-      }
-      updateFoodBatchRow(i);updateFoodBatchTitle();
-    }).catch(err=>{item.status='fail';item.error=(err&&err.message)||'未知錯誤';updateFoodBatchRow(i);updateFoodBatchTitle();});
+      const btn=document.getElementById('food-batch-start-'+i);
+      if(btn)btn.disabled=false;
+    }).catch(()=>{
+      const statusEl=document.getElementById('food-batch-status-'+i);
+      if(statusEl)statusEl.innerHTML='<span style="color:#f87171">⚠️ 圖片讀取失敗</span>';
+    });
   });
   input.value='';
 }
@@ -5261,7 +5278,7 @@ function renderFoodBatchRowsInitial(){
         <span style="font-size:11px;color:rgba(240,236,228,.4)">${item.date.slice(5)}</span>
         <input type="date" id="food-batch-date-${i}" value="${item.date}" style="flex:1;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:6px;color:#f0ece4;font-size:11px;padding:3px 6px">
       </div>
-      <input class="form-input" id="food-batch-name-${i}" placeholder="食物名稱" style="font-size:13px;padding:8px;margin-bottom:6px">
+      <input class="form-input" id="food-batch-name-${i}" placeholder="食物名稱（辨識後或手動填）" style="font-size:13px;padding:8px;margin-bottom:6px">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
         <input class="form-input" type="number" id="food-batch-kcal-${i}" placeholder="kcal" style="font-size:12px;padding:8px 4px">
         <input class="form-input" type="number" id="food-batch-protein-${i}" placeholder="蛋白" style="font-size:12px;padding:8px 4px">
@@ -5270,17 +5287,19 @@ function renderFoodBatchRowsInitial(){
       </div>
       <div style="display:flex;gap:6px;margin-top:6px">
         <input class="form-input" id="food-batch-desc-${i}" placeholder="補充說明（例：去骨、去皮）" style="flex:1;font-size:11.5px;padding:6px 8px">
-        <button class="btn btn-ghost" style="padding:0 10px;font-size:11px;white-space:nowrap" onclick="reanalyzeFoodBatchRow(${i})">🔄重辨識</button>
+        <button class="btn btn-primary" id="food-batch-start-${i}" disabled style="padding:0 10px;font-size:11px;white-space:nowrap" onclick="reanalyzeFoodBatchRow(${i})">▶️開始辨識</button>
       </div>
-      <div id="food-batch-status-${i}" style="font-size:10.5px;margin-top:4px;color:rgba(240,236,228,.35)">⏳ 辨識中…</div>
+      <div id="food-batch-status-${i}" style="font-size:10.5px;margin-top:4px;color:rgba(240,236,228,.35)">照片處理中…</div>
     </div>`).join('');
 }
 function reanalyzeFoodBatchRow(i){
   const item=_foodBatchItems[i];if(!item||!item.b64)return;
   const desc=(document.getElementById('food-batch-desc-'+i)?.value||'').trim();
   const statusEl=document.getElementById('food-batch-status-'+i);
+  const btn=document.getElementById('food-batch-start-'+i);
   item.status='pending';
-  if(statusEl)statusEl.innerHTML='<span style="color:rgba(240,236,228,.35)">⏳ 重新辨識中…</span>';
+  if(btn)btn.disabled=true;
+  if(statusEl)statusEl.innerHTML='<span style="color:rgba(240,236,228,.35)">⏳ 辨識中…</span>';
   analyzeFoodImageB64(item.b64,desc).then(result=>{
     if(result&&result.ok){
       item.name=result.name;item.kcal=result.kcal;item.protein=result.protein;
@@ -5288,8 +5307,13 @@ function reanalyzeFoodBatchRow(i){
     }else{
       item.status='fail';item.error=(result&&result.error)||'未知錯誤';
     }
+    if(btn){btn.disabled=false;btn.textContent='🔄重辨識';}
     updateFoodBatchRow(i);updateFoodBatchTitle();
-  }).catch(err=>{item.status='fail';item.error=(err&&err.message)||'未知錯誤';updateFoodBatchRow(i);updateFoodBatchTitle();});
+  }).catch(err=>{
+    item.status='fail';item.error=(err&&err.message)||'未知錯誤';
+    if(btn){btn.disabled=false;btn.textContent='🔄重辨識';}
+    updateFoodBatchRow(i);updateFoodBatchTitle();
+  });
 }
 function updateFoodBatchRow(i){
   const item=_foodBatchItems[i];if(!item)return;
@@ -5305,10 +5329,10 @@ function updateFoodBatchRow(i){
 }
 function updateFoodBatchTitle(){
   const el=document.getElementById('food-batch-title');if(!el)return;
-  const done=_foodBatchItems.filter(it=>it.status!=='pending').length;
-  el.textContent=done<_foodBatchItems.length?`辨識中…（${done}/${_foodBatchItems.length}）`:`共 ${_foodBatchItems.length} 筆，確認內容後按「全部儲存」`;
+  el.textContent=`共 ${_foodBatchItems.length} 張，逐列補充說明後按「開始辨識」，確認內容後按「全部儲存」`;
 }
 function saveFoodBatch(){
+  try{
   const byDate={};
   let savedCount=0;
   _foodBatchItems.forEach((item,i)=>{
@@ -5320,7 +5344,9 @@ function saveFoodBatch(){
     const carbs=parseFloat(document.getElementById('food-batch-carbs-'+i)?.value)||0;
     const fat=parseFloat(document.getElementById('food-batch-fat-'+i)?.value)||0;
     if(!byDate[date])byDate[date]=getDietForDate(date);
-    byDate[date].push({id:uid(),name,kcal,protein,carbs,fat,thumb:item.thumb});
+    // 存檔用smallThumb(160px)不是thumb(800px分析用大圖)——批次好幾張時每筆都存大圖很容易把localStorage塞爆，
+    // setItem會直接拋例外，存檔函式整個中斷、畫面上完全沒有任何提示（2026-08-25真的發生過的bug，根因在這裡）
+    byDate[date].push({id:uid(),name,kcal,protein,carbs,fat,thumb:item.smallThumb||item.thumb});
     savedCount++;
   });
   Object.keys(byDate).forEach(date=>{saveDietForDate(date,byDate[date]);apiSaveDiet(date,byDate[date]);});
@@ -5328,6 +5354,10 @@ function saveFoodBatch(){
   cancelFoodBatch();
   renderDietList();renderTodaySummary();
   showToast(`✅ 已儲存 ${savedCount} 筆飲食紀錄`+(skipped?`，${skipped}筆缺名稱已略過`:''),3500);
+  }catch(err){
+    console.error('批次飲食儲存失敗',err);
+    showToast('⚠️ 儲存失敗：'+(err&&err.message||'未知錯誤')+'（可能是照片太多超過瀏覽器儲存空間，建議減少張數分批存）',7000);
+  }
 }
 function cancelFoodBatch(){
   _foodBatchItems=[];
@@ -5396,6 +5426,7 @@ function calcFoodNutrition(){
 }
 
 function saveFoodEntry(){
+ try{
   const name=document.getElementById('food-name-input').value.trim();
   if(!name){showToast('請輸入食物名稱');return;}
   const kcal=parseFloat(document.getElementById('food-kcal').value)||0;
@@ -5434,6 +5465,10 @@ function saveFoodEntry(){
     apiSaveDiet(date,arr);
   }
   closeAddFood();renderDietList();renderTodaySummary();
+ }catch(err){
+   console.error('飲食儲存失敗',err);
+   showToast('⚠️ 儲存失敗：'+(err&&err.message||'未知錯誤'),6000);
+ }
 }
 
 // ── DRAG REORDER ──
