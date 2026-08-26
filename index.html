@@ -5183,11 +5183,27 @@ function usdaLookup(nameEn){
     // 只是字面上剛好同時出現milk跟bread）：Role1辨識出的每一項本來就是拆解過的單一食材，
     // 正確答案幾乎不會是描述裡有" with "或" and "這種代表「這是好幾種東西組合」的複合菜餚項目，優先選單純的品項
     const isComposite=desc=>/\bwith\b|\band\b/i.test(desc);
+    // 實測發現的第二個配錯類型：查"soy milk, sweetened"卻配到"Soy milk, chocolate"——
+    // USDA搜尋只認字面關鍵字，常見加味變體（巧克力/香草等）資料筆數多、常常排到前面，
+    // 但口味差很多會嚴重影響碳水（含糖量）。查詢字串沒明講要那個口味時，優先排除掛著該口味字樣的候選項
+    const FLAVOR_WORDS=['chocolate','vanilla','strawberry','caramel','mocha','coffee','matcha'];
+    const queryLower=nameEn.toLowerCase();
+    const isFlavorMismatch=desc=>{
+      const dl=desc.toLowerCase();
+      return FLAVOR_WORDS.some(w=>dl.includes(w)&&!queryLower.includes(w));
+    };
     const simple=candidates.filter(c=>!isComposite(c.food.description));
-    const pick=(simple.length?simple:candidates)[0];
+    const clean=simple.filter(c=>!isFlavorMismatch(c.food.description));
+    const pick=(clean.length?clean:simple.length?simple:candidates)[0];
+    // 澱粉主食類（麵包/飯/麵/燕麥等）正常碳水應遠高於脂肪，配對結果不符合這個比例代表很可能選錯品項，
+    // 標記出來讓使用者在辨識明細看得到，而不是默默存一個看起來合理、實際上配錯的數字
+    const isGrainQuery=/\b(bread|toast|rice|noodle|pasta|oat|cereal|flour|bun|dumpling wrapper)\b/i.test(nameEn);
+    const carbs=Math.max(0,pick.carbs||0);
+    const lowConfidence=isGrainQuery&&carbs<(pick.fat||0)*1.2;
     return{ok:true,matched:pick.food.description,fdcId:pick.food.fdcId,
       kcal100:pick.kcal,protein100:pick.protein||0,
-      fat100:pick.fat||0,carbs100:Math.max(0,pick.carbs||0)};
+      fat100:pick.fat||0,carbs100:carbs,
+      lowConfidence,lowConfidenceReason:lowConfidence?'碳水未明顯高於脂肪，主食類配對可能有誤，建議人工核對':null};
   }).catch(err=>({ok:false,error:(err&&err.message)||'USDA查詢失敗'}));
 }
 
@@ -5265,11 +5281,16 @@ function analyzeFoodImageB64(b64,desc,retryCount){
           protein:Math.round(nutri.protein100*f*10)/10,
           carbs:Math.round(nutri.carbs100*f*10)/10,
           fat:Math.round(nutri.fat100*f*10)/10,
-          matched:nutri.matched};
+          matched:nutri.matched,
+          lowConfidence:nutri.lowConfidence,lowConfidenceReason:nutri.lowConfidenceReason};
       });
     })).then(computedItems=>{
       const sum=(k)=>computedItems.reduce((a,it)=>a+(it[k]||0),0);
       const failedItems=computedItems.filter(it=>it.error);
+      const uncertainItems=computedItems.filter(it=>it.lowConfidence);
+      const warnings=[];
+      if(failedItems.length)warnings.push(`${failedItems.length}個品項查無USDA資料庫對應（${failedItems.map(it=>it.item).join('、')}），該項數值為0，請手動補上`);
+      if(uncertainItems.length)warnings.push(`${uncertainItems.length}個品項配對可能有誤（${uncertainItems.map(it=>it.item).join('、')}），請人工核對`);
       return{
         ok:true,
         name:idResult.name,
@@ -5279,7 +5300,7 @@ function analyzeFoodImageB64(b64,desc,retryCount){
         fat:Math.round(sum('fat')*10)/10,
         grams:Math.round(computedItems.reduce((a,it)=>a+(it.grams||0),0)),
         items:computedItems,
-        warning:failedItems.length?`${failedItems.length}個品項查無USDA資料庫對應（${failedItems.map(it=>it.item).join('、')}），該項數值為0，請手動補上`:null
+        warning:warnings.length?warnings.join('；'):null
       };
     });
   });
@@ -5312,7 +5333,7 @@ function analyzeFoodPhoto(){
           bdEl.innerHTML='逐項估算（營養值查自USDA資料庫）：<br>'+result.items.map(it=>
             it.error
               ?`${it.item} ${Math.round(it.grams)||'?'}g（⚠️${it.error}，需手動補）`
-              :`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${it.protein}・碳水${it.carbs}・脂肪${it.fat}）${it.matched?`<span style="opacity:.5">［${it.matched}］</span>`:''}`
+              :`${it.item} ${Math.round(it.grams)||'?'}g（蛋白${it.protein}・碳水${it.carbs}・脂肪${it.fat}）${it.matched?`<span style="opacity:.5">［${it.matched}］</span>`:''}${it.lowConfidence?`<br><span style="color:#f59e0b">⚠️ ${it.lowConfidenceReason}</span>`:''}`
           ).join('<br>');
         } else bdEl.style.display='none';
       }
