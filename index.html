@@ -5268,11 +5268,23 @@ function analyzeFoodImageB64(b64,desc,retryCount){
   if(!cfg2.usdaKey)return Promise.resolve({ok:false,error:'請在設定中填入 USDA API Key（fdc.nal.usda.gov免費申請）'});
   return geminiIdentifyItems(b64,desc,retryCount).then(idResult=>{
     if(!idResult.ok)return idResult;
-    // 角色2：每個品項平行查USDA；角色3：per-100g × 克數/100，純JS數學
+    // 角色2：每個品項先查本地常用清單（人工驗證過的資料，完全準確、不用再賭USDA配對），
+    // 沒有才平行查USDA；角色3：per-100g × 克數/100，純JS數學
+    const favs=getFoodFavorites();
+    const findFavorite=nameZh=>favs.find(x=>x.name===nameZh||nameZh.includes(x.name)||x.name.includes(nameZh));
     return Promise.all(idResult.items.map(it=>{
       const grams=parseFloat(it.grams)||0;
+      const f=grams/100;
+      const fav=findFavorite(it.item_zh);
+      if(fav){
+        return Promise.resolve({item:it.item_zh,grams,
+          kcal:Math.round(fav.kcal100*f),
+          protein:Math.round(fav.protein100*f*10)/10,
+          carbs:Math.round(fav.carbs100*f*10)/10,
+          fat:Math.round(fav.fat100*f*10)/10,
+          matched:'⭐常用清單："'+fav.name+'"',fromFavorite:true});
+      }
       return usdaLookup(it.item_en||it.item_zh).then(nutri=>{
-        const f=grams/100;
         if(!nutri.ok){
           return{item:it.item_zh,grams,kcal:0,protein:0,carbs:0,fat:0,error:nutri.error};
         }
