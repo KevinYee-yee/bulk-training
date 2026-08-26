@@ -5201,7 +5201,8 @@ function geminiIdentifyItems(b64,desc,retryCount){
         {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），預設針對「照片中這整份」（不是每100g）估算每個品項的重量——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新估算克數，不要無視補充說明直接算整份。你**不用**估算熱量或營養素，那部分會另外查真實資料庫，你只需要負責「這是什麼」跟「重量多少克」。品項的英文名稱給USDA食品資料庫查詢用，原則是**只保留會明顯改變每100g營養密度的關鍵字，省略對營養密度影響不大的細節**：
 - 保留：熟／生（cooked/raw，澱粉穀物類生熟密度可以差到3倍）、有沒有調味／加糖／口味（例如豆漿分plain/chocolate/sweetened/unsweetened，USDA資料庫裡這些是完全不同的項目，沒講清楚容易配到不對的口味）、全脂/脫脂、去皮/帶皮這種真的會讓熱量差很多的資訊
 - 省略：具體烹調手法（braised/roasted/pan-fried這種對巨量營養素影響通常不大，但實測加了反而容易讓資料庫配對配到不相關的品項或部位）、擺盤細節、品牌
-- 例如：帶皮滷五花肉寫"pork belly"（不用加braised）、白飯要寫"white rice, cooked"（不能只寫"white rice"，否則可能配到生米）、微糖豆漿寫"soy milk, sweetened, plain"（不能只寫"soy milk"，否則可能配到巧克力口味）、無糖豆漿寫"soy milk, unsweetened, plain"
+- 例如：帶皮滷五花肉寫"pork belly"（不用加braised）、白飯要寫"white rice, cooked"（不能只寫"white rice"，否則可能配到生米）、微糖豆漿寫"soy milk, sweetened, plain"（不能只寫"soy milk"，否則可能配到巧克力口味）、無糖豆漿寫"soy milk, unsweetened, plain"、吐司/麵包類（含鮮乳吐司這種調味吐司）一律簡化寫成"white bread"或"wheat bread"（不要寫"milk bread"或"milk toast"這種複合詞，實測會配到不相關的複合菜餚，只要因為菜名裡剛好同時出現bread和milk兩個字就被誤配）
+- 麵包/穀物類食物的營養組成應該以碳水為主（每100g碳水通常45-55g，遠高於脂肪），如果查到的品項碳水沒有明顯高於脂肪，很可能是配錯了
 以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item_zh":"品項中文名稱","item_en":"適合查USDA資料庫的具體英文名稱","grams":這個品項重量估計整數}]}`}
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:1024}}
