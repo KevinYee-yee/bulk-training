@@ -3715,19 +3715,22 @@ function saveDaySummary(dayIdx,summary){
 // 逐動作判斷是否「連續卡關」：近兩次紀錄都沒達到建議次數、或RPE都偏高
 function isExerciseStuck(exDef){
   if(exDef.unit==='bodyweight'||exDef.cat==='輔助')return false;
-  const recent=recentRecordsOf(exDef.name,2);
-  if(recent.length<2)return false;
-  const stuckOnce=r=>{
+  // 雙重漸進本來就是「同重量、次數慢慢往上爬」，連續好幾次都還沒到12下是正常過程，不算卡關；
+  // 真正卡關要看「有沒有前進」——連續兩次都沒有進步（重量沒加、次數也沒比上次多）才算，
+  // 不能只看「這次還沒到達次數上限」就判定卡住（那樣雙重漸進中途永遠會被判卡關）
+  const recent=recentRecordsOf(exDef.name,3);
+  if(recent.length<3)return false;
+  const perfOf=r=>{
     const sets=(r.sets||[]).filter(s=>s.w!=null);
-    if(!sets.length)return false;
+    if(!sets.length)return null;
     const maxW=Math.max(...sets.map(s=>s.w));
-    // 跟 computeCoachSuggestion 同邏輯：用頂重量裡最差一組的次數判斷，不是最好一組
     const minReps=Math.min(...sets.filter(s=>s.w===maxW).map(s=>s.r||0));
-    const rpes=sets.map(s=>s.rpe).filter(v=>v!=null);
-    const maxRpe=rpes.length?Math.max(...rpes):null;
-    return minReps<exDef.rep||(maxRpe!==null&&maxRpe>exDef.rpe);
+    return{w:maxW,minReps};
   };
-  return stuckOnce(recent[0])&&stuckOnce(recent[1]);
+  const [p0,p1,p2]=recent.map(perfOf);
+  if(!p0||!p1||!p2)return false;
+  const progressed=(newer,older)=>newer.w>older.w||(newer.w===older.w&&newer.minReps>older.minReps);
+  return!progressed(p0,p1)&&!progressed(p1,p2);
 }
 // 存檔後呼叫：session 已經在 WK 裡，所以 computeCoachSuggestion 會自然把這次當「上次紀錄」算出下次建議
 function computeSessionSummary(session,dayIdx){
