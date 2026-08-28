@@ -619,6 +619,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   <div class="form-sec">
     <div id="plan-bar" hidden></div>
     <div id="coach-summary-note" hidden></div>
+    <div id="draft-autosave-status" class="draft-bar" hidden><span id="draft-autosave-status-text"></span></div>
     <label class="form-label">訓練日期</label>
     <input type="date" class="form-input" id="new-date" style="margin-bottom:16px" onchange="scheduleDraftSave()">
     <label class="form-label">動作</label>
@@ -1882,8 +1883,20 @@ function saveDraft(){
     }))
   }));
   localStorage.setItem(DRAFT_KEY,JSON.stringify({date,note,exercises}));
+  showDraftAutosaveStatus();
 }
-function clearDraft(){localStorage.removeItem(DRAFT_KEY);}
+// 填寫過程中要一直看得到「還沒正式存檔」的提醒，不能只靠自動存草稿默默進行——
+// 這是2026-08-26整份腿部訓練紀錄遺失事故的根因之一：填寫當下完全沒有任何視覺提示這筆資料還不是正式紀錄
+function showDraftAutosaveStatus(){
+  const el=document.getElementById('draft-autosave-status');
+  const txt=document.getElementById('draft-autosave-status-text');
+  if(!el||!txt)return;
+  const hh=new Date().toTimeString().slice(0,5);
+  txt.textContent=`📝 草稿已自動存在本機（${hh}）・還沒按「儲存訓練」都不算正式紀錄`;
+  el.hidden=false;
+}
+function hideDraftAutosaveStatus(){const el=document.getElementById('draft-autosave-status');if(el)el.hidden=true;}
+function clearDraft(){localStorage.removeItem(DRAFT_KEY);hideDraftAutosaveStatus();}
 // 「捨棄」草稿曾經是一按就永久刪除、沒有任何復原機制（2026-08-26真的發生過整份腿部訓練紀錄救不回來），
 // 改成跟刪除訓練紀錄/刪除動作同一套 showUndoToast 復原機制，4秒內按「撤銷」可以救回來
 let _pendingDiscardDraft=null;
@@ -1891,7 +1904,7 @@ function discardDraftWithUndo(){
   const draft=_pendingDiscardDraft;
   clearDraft();
   showUndoToast('草稿已捨棄',()=>{
-    if(draft){restoreDraft(draft);showToast('✅ 草稿已復原');}
+    if(draft){restoreDraft(draft);showDraftAutosaveStatus();showToast('✅ 草稿已復原');}
   });
 }
 function restoreDraft(draft){
@@ -1921,6 +1934,7 @@ function openEditSession(id){
   const summaryNote=document.getElementById('coach-summary-note');if(summaryNote){summaryNote.hidden=true;summaryNote.innerHTML='';}
   document.getElementById('ex-container').innerHTML='';exIdx=0;
   restoreDraft(s);
+  hideDraftAutosaveStatus();
   updateAddPageEditUI(true);
   goTab('add',document.querySelector('[data-tab=add]'));
 }
@@ -1963,7 +1977,7 @@ function initAdd(){
     const container=document.getElementById('ex-container');
     container.innerHTML='';exIdx=0;
     const bar=document.createElement('div');bar.className='draft-bar';bar.id='draft-notice';
-    bar.innerHTML=`<span>📝 有未完成的訓練草稿</span><span style="display:flex;gap:8px"><button class="btn-sm" style="background:var(--pa);color:var(--p2);border-radius:8px;padding:6px 12px;border:none;font-size:12px;cursor:pointer" onclick="restoreDraft(${JSON.stringify(draft).replace(/"/g,'&quot;')});document.getElementById('draft-notice').remove()">繼續</button><button class="btn-sm" style="padding:6px 12px;font-size:12px" onclick="discardDraftWithUndo();document.getElementById('draft-notice').remove()">捨棄</button></span>`;
+    bar.innerHTML=`<span>📝 有未完成的訓練草稿</span><span style="display:flex;gap:8px"><button class="btn-sm" style="background:var(--pa);color:var(--p2);border-radius:8px;padding:6px 12px;border:none;font-size:12px;cursor:pointer" onclick="restoreDraft(${JSON.stringify(draft).replace(/"/g,'&quot;')});showDraftAutosaveStatus();document.getElementById('draft-notice').remove()">繼續</button><button class="btn-sm" style="padding:6px 12px;font-size:12px" onclick="discardDraftWithUndo();document.getElementById('draft-notice').remove()">捨棄</button></span>`;
     document.getElementById('ex-container').before(bar);
     initPlanBar();addExercise();return;
   }
@@ -1971,6 +1985,7 @@ function initAdd(){
   document.getElementById('new-note').value='';
   document.getElementById('ex-container').innerHTML='';
   exIdx=0;initPlanBar();addExercise();
+  hideDraftAutosaveStatus();
 }
 function addExercise(){
   exIdx++;const id=`ex${exIdx}`;
