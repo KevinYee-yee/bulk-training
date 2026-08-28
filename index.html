@@ -1884,6 +1884,16 @@ function saveDraft(){
   localStorage.setItem(DRAFT_KEY,JSON.stringify({date,note,exercises}));
 }
 function clearDraft(){localStorage.removeItem(DRAFT_KEY);}
+// 「捨棄」草稿曾經是一按就永久刪除、沒有任何復原機制（2026-08-26真的發生過整份腿部訓練紀錄救不回來），
+// 改成跟刪除訓練紀錄/刪除動作同一套 showUndoToast 復原機制，4秒內按「撤銷」可以救回來
+let _pendingDiscardDraft=null;
+function discardDraftWithUndo(){
+  const draft=_pendingDiscardDraft;
+  clearDraft();
+  showUndoToast('草稿已捨棄',()=>{
+    if(draft){restoreDraft(draft);showToast('✅ 草稿已復原');}
+  });
+}
 function restoreDraft(draft){
   document.getElementById('new-date').value=draft.date||todayStr();
   document.getElementById('new-note').value=draft.note||'';
@@ -1949,10 +1959,11 @@ function initAdd(){
   const raw=localStorage.getItem(DRAFT_KEY);
   if(raw){
     const draft=JSON.parse(raw);
+    _pendingDiscardDraft=draft;
     const container=document.getElementById('ex-container');
     container.innerHTML='';exIdx=0;
     const bar=document.createElement('div');bar.className='draft-bar';bar.id='draft-notice';
-    bar.innerHTML=`<span>📝 有未完成的訓練草稿</span><span style="display:flex;gap:8px"><button class="btn-sm" style="background:var(--pa);color:var(--p2);border-radius:8px;padding:6px 12px;border:none;font-size:12px;cursor:pointer" onclick="restoreDraft(${JSON.stringify(draft).replace(/"/g,'&quot;')});document.getElementById('draft-notice').remove()">繼續</button><button class="btn-sm" style="padding:6px 12px;font-size:12px" onclick="clearDraft();document.getElementById('draft-notice').remove()">捨棄</button></span>`;
+    bar.innerHTML=`<span>📝 有未完成的訓練草稿</span><span style="display:flex;gap:8px"><button class="btn-sm" style="background:var(--pa);color:var(--p2);border-radius:8px;padding:6px 12px;border:none;font-size:12px;cursor:pointer" onclick="restoreDraft(${JSON.stringify(draft).replace(/"/g,'&quot;')});document.getElementById('draft-notice').remove()">繼續</button><button class="btn-sm" style="padding:6px 12px;font-size:12px" onclick="discardDraftWithUndo();document.getElementById('draft-notice').remove()">捨棄</button></span>`;
     document.getElementById('ex-container').before(bar);
     initPlanBar();addExercise();return;
   }
