@@ -5586,7 +5586,14 @@ function saveFoodEntry(){
   const date=document.getElementById('food-date-input')?.value||getDietDateSel();
   const portion=parseFloat(document.getElementById('food-portion').value)||100;
   if(document.getElementById('food-fav-check')?.checked){
-    upsertFoodFavorite(name,kcal,protein,carbs,fat,portion);
+    // 常用清單基準值一旦被默默覆蓋，之後每次選用都會沿用錯的數字越疊越高（2026-08-31發現的bug）——
+    // 差異明顯時要先跟使用者確認，不能無聲覆蓋
+    const existingFav=getFoodFavorites().find(x=>x.name===name);
+    const newKcal100=Math.round(kcal*(100/(portion||100)));
+    const bigDiff=existingFav&&existingFav.kcal100>0&&Math.abs(newKcal100-existingFav.kcal100)>existingFav.kcal100*0.1;
+    if(!bigDiff||confirm(`常用清單「${name}」目前是${existingFav.kcal100}kcal/100g，這次要更新成${newKcal100}kcal/100g嗎？\n（選取消：這筆飲食照樣存檔，但不會動到常用清單基準值）`)){
+      upsertFoodFavorite(name,kcal,protein,carbs,fat,portion);
+    }
   }
   if(_editFoodIdx>=0&&_editFoodOrigDate&&date!==_editFoodOrigDate){
     // 換了日期：從原本那天移除，存進新的那天（同一筆id延續，不是刪掉重建）
