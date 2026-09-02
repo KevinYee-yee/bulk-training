@@ -4144,6 +4144,24 @@ function getBodyCfg(){
 function saveBodyCfg(c){localStorage.setItem('bulk_body_cfg',JSON.stringify(c));}
 function getDietForDate(date){const d=getDietData();return d[date]||[];}
 function saveDietForDate(date,arr){const d=getDietData();d[date]=arr;saveDietData(d);}
+// 飲食紀錄的縮圖是唯一會長期累積、佔用localStorage空間的資料（訓練/體重/血壓都不存圖片）——
+// 整個飲食歷史存在單一個key裡，一旦累積到瀏覽器配額上限，連新增一筆很小的紀錄都會整包寫入失敗（2026-09-01發生過）。
+// 舊照片本身參考價值不高（營養數字已經存好了，照片只是當初辨識用的輔助），超過保留天數就把thumb清掉騰空間，
+// 每次App啟動都跑一次，屬於自我修復，不用使用者手動處理
+function pruneOldDietThumbs(days){
+  try{
+    const cutoff=days||14;
+    const cutoffDate=new Date();cutoffDate.setDate(cutoffDate.getDate()-cutoff);
+    const cutoffStr=cutoffDate.toISOString().slice(0,10);
+    const d=getDietData();
+    let changed=false;
+    Object.keys(d).forEach(date=>{
+      if(date>=cutoffStr)return;
+      (d[date]||[]).forEach(meal=>{if(meal.thumb){meal.thumb=null;changed=true;}});
+    });
+    if(changed)saveDietData(d);
+  }catch(e){}
+}
 // 飲食分頁目前選取的日期（可以回去某一天調整登記，不是只能記今天）
 function getDietDateSel(){
   const el=document.getElementById('diet-date');
@@ -5685,6 +5703,7 @@ if(!cfg.setupSeen){
   showSheet('setup-modal');
 }
 setSyncState(getGASUrl()?'syncing':'local');
+pruneOldDietThumbs(14);
 BADGES.forEach(b=>{if(b.check())_prevBadges.add(b.id);}); // baseline: existing badges not "new"
 renderOverview();
 initAdd();
