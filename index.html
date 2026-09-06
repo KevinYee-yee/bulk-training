@@ -5265,12 +5265,21 @@ function geminiIdentifyItems(b64,desc,retryCount){
     body:JSON.stringify({
       contents:[{parts:[
         {inline_data:{mime_type:'image/jpeg',data:b64}},
-        {text:`這是一張食物照片。${descLine}請把照片中的食物拆解成幾個主要組成品項（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），預設針對「照片中這整份」（不是每100g）估算每個品項的重量——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新估算克數，不要無視補充說明直接算整份。你**不用**估算熱量或營養素，那部分會另外查真實資料庫，你只需要負責「這是什麼」跟「重量多少克」。品項的英文名稱給USDA食品資料庫查詢用（純文字關鍵字比對，不是語意理解），三個原則：
+        {text:`這是一張食物照片。${descLine}
+**第一步先判斷照片裡看不看得到印刷的營養標示（Nutrition Facts / 營養標示，例如超商包裝食品背面那種表格）**：
+- **看得到營養標示的品項**：直接讀取表格上印刷的數字（每份/每100g的熱量、蛋白質、碳水、脂肪、每份克數、本包裝含幾份），不要用商品名稱去猜資料庫——包裝上印的數字是廠商實測值，比查資料庫估算準確非常多。讀到數字後，依照使用者實際吃掉的量（補充說明有講就照那個算，例如「吃了1/2個」「這包全部吃完」；沒講、又看得出來是完整一份/一包就當作全部吃完）換算出**這次實際吃下去的總量**，直接把算好的熱量/蛋白質/碳水/脂肪填進這個品項，並標記"fromLabel":true，這個品項**不用**填item_en（不會拿去查資料庫）
+- **看不到營養標示、只是單純食物本身的品項**（例如便當菜色、水果、外食餐點）：跟之前一樣只負責「這是什麼」跟「重量多少克」，不用算熱量營養素，那部分交給資料庫查詢，"fromLabel"設false或不填
+
+同一張照片可能同時有兩種品項（例如一份便當配一瓶看得到營養標示的超商飲料），要分開判斷、不要整張都用同一種模式。
+
+拆解品項時（例如：雞腿肉、白切肉、白飯、滷豆干、香腸、青菜⋯逐一列出，不要合併），非標籤品項預設針對「照片中這整份」（不是每100g）估算重量——但如果使用者補充說明有指定實際吃掉的份量或比例（例如只吃一半、去骨去皮），要以那個實際份量為準重新估算克數，不要無視補充說明直接算整份。
+
+非標籤品項的英文名稱給USDA食品資料庫查詢用（純文字關鍵字比對，不是語意理解），三個原則：
 1. **只保留會明顯改變每100g營養密度的關鍵字，省略不太影響的細節**——保留：熟／生（cooked/raw，澱粉穀物差到3倍密度）、調味／加糖／口味（例如豆漿分plain/chocolate/sweetened，是資料庫裡完全不同的項目）、全脂/脫脂、去皮/帶皮；省略：具體烹調手法（braised/roasted/pan-fried對巨量營養素影響通常不大，但加了容易讓配對跑掉）、擺盤細節、品牌
 2. **避免兩個常見字組成的複合詞**（例如"milk bread"、"milk toast"）——這種詞容易剛好命中某個完全不相關、但描述裡同時出現這兩個字的複合菜餚，寧可簡化成單一類別詞（吐司/麵包類直接寫"white bread"或"wheat bread"就好，不用硬要反映「鮮乳」這種細節）
 3. 例如：帶皮滷五花肉→"pork belly"、白飯→"white rice, cooked"（不能只寫"white rice"）、微糖豆漿→"soy milk, sweetened, plain"（不能只寫"soy milk"）
 - 麵包/穀物類食物的營養組成應該以碳水為主（每100g碳水通常45-55g，遠高於脂肪），如果查到的品項碳水沒有明顯高於脂肪，很可能是配錯了
-以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item_zh":"品項中文名稱","item_en":"適合查USDA資料庫的具體英文名稱","grams":這個品項重量估計整數}]}`}
+以JSON格式回覆，只需JSON不要其他文字，不要用markdown code block包裹：{"name":"整體食物名稱（中文）","items":[{"item_zh":"品項中文名稱","item_en":"適合查USDA資料庫的具體英文名稱（fromLabel為true時不用填）","grams":這個品項重量估計整數,"fromLabel":true或false,"kcal":fromLabel為true時填實際吃下去的總熱量,"protein":同上,"carbs":同上,"fat":同上}]}`}
       ]}],
       generationConfig:{thinkingConfig:{thinkingBudget:1024}}
     })
@@ -5321,6 +5330,16 @@ function analyzeFoodImageB64(b64,desc,retryCount){
     return Promise.all(idResult.items.map(it=>{
       const grams=parseFloat(it.grams)||0;
       const f=grams/100;
+      // 角色1如果在照片裡看到印刷的營養標示，會直接讀標示數字算好，比資料庫估算準確非常多，
+      // 這種品項不查常用清單也不查USDA，直接信任標示換算出來的數字
+      if(it.fromLabel){
+        return Promise.resolve({item:it.item_zh,grams,
+          kcal:Math.round(parseFloat(it.kcal)||0),
+          protein:Math.round((parseFloat(it.protein)||0)*10)/10,
+          carbs:Math.round((parseFloat(it.carbs)||0)*10)/10,
+          fat:Math.round((parseFloat(it.fat)||0)*10)/10,
+          matched:'📋 讀取包裝營養標示',fromLabel:true});
+      }
       const fav=findFavorite(it.item_zh);
       if(fav){
         return Promise.resolve({item:it.item_zh,grams,
