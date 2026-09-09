@@ -527,6 +527,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   <div id="cloud-banner"></div>
   <div id="phase-card" style="margin:0 16px 14px"></div>
   <div id="coach-card" style="margin:0 16px 14px"></div>
+  <div id="progress-summary-card" style="margin:0 16px 14px"></div>
   <!-- Merged weekly summary: streak/stats + week dots + rings -->
   <div class="card ov-week-card" style="margin-left:16px;margin-right:16px">
     <div class="ov-streak-row" id="ov-streak-row">
@@ -1742,6 +1743,43 @@ function renderOverview(){
   renderOverviewWeight();
   renderPhaseCard();
   renderCoachCard();
+  renderProgressSummary();
+}
+// 總覽頁「重量進步總覽」——2026-09-09新增：Kevin反映一直想優化菜單、很焦慮怕沒成功增肌，
+// 現有的主項目趨勢圖藏在「紀錄」分頁、還要逐一點開才看得到，且用volumeLoad(重量x次數)不夠直覺；
+// 這裡直接放在總覽頁最上面、只看「重量」這個他最在意的數字，開App第一眼就看得到，不用自己去找
+function renderProgressSummary(){
+  const el=document.getElementById('progress-summary-card');if(!el)return;
+  const cycle=getCoachCycle();
+  const primaryNames=[...new Set(cycle.flatMap(d=>d.exercises.filter(e=>e.cat==='主項目').map(e=>e.name)))];
+  const items=primaryNames.map(name=>{
+    let pts=[];
+    WK.forEach(w=>w.exercises.forEach(ex=>{
+      if(ex.name!==name)return;
+      const ws=(ex.sets||[]).map(s=>s.w).filter(v=>v!=null&&v>0);
+      if(!ws.length)return;
+      pts.push({date:w.date,w:Math.max(...ws)});
+    }));
+    pts.sort((a,b)=>a.date.localeCompare(b.date));
+    if(pts.length<2)return null;
+    const first=pts[0].w,last=pts[pts.length-1].w;
+    const diff=Math.round((last-first)*10)/10;
+    return{name,first,last,diff};
+  }).filter(Boolean);
+  if(!items.length){el.innerHTML='';return;}
+  const up=items.filter(i=>i.diff>0).length;
+  const down=items.filter(i=>i.diff<0).length;
+  const flat=items.length-up-down;
+  const headline=`${items.length}個主項目裡，<strong style="color:#4ade80">${up}個比開始時更重</strong>${flat?`、${flat}個持平`:''}${down?`、${down}個略降`:''}`;
+  el.innerHTML=`
+    <div class="card" style="padding:14px 16px">
+      <div style="font-size:12px;font-weight:700;color:rgba(240,236,228,.5);margin-bottom:8px">💪 重量進步總覽（自第一次紀錄起）</div>
+      <div style="font-size:13px;color:#f0ece4;margin-bottom:10px;line-height:1.5">${headline}</div>
+      ${items.map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(240,236,228,.06)">
+        <span style="font-size:12.5px;color:rgba(240,236,228,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%">${i.name}</span>
+        <span style="font-size:12.5px;font-weight:700;color:${i.diff>0?'#4ade80':i.diff<0?'#f87171':'rgba(240,236,228,.4)'}">${i.first}→${i.last}kg${i.diff!==0?`（${i.diff>0?'+':''}${i.diff}）`:'（持平）'}</span>
+      </div>`).join('')}
+    </div>`;
 }
 function renderOverviewWeight(){
   const el=document.getElementById('ov-weight-card');if(!el)return;
