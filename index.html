@@ -290,6 +290,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
 #rest-timer{position:fixed;top:66px;left:50%;transform:translateX(-50%);background:#111;border:1px solid rgba(245,158,11,.35);color:#f59e0b;padding:7px 18px;border-radius:24px;font-size:13px;font-weight:700;z-index:300;display:flex;align-items:center;gap:8px;white-space:nowrap;transition:opacity .25s,transform .25s}
 #rest-timer.rt-hidden{opacity:0;pointer-events:none;transform:translateX(-50%) translateY(-12px)}
 #rest-timer .rt-stop{background:none;border:none;color:rgba(240,236,228,.4);font-size:18px;padding:0 0 0 4px;cursor:pointer;line-height:1}
+#rest-timer .rt-adj{background:rgba(245,158,11,.12);border:none;color:#f59e0b;font-size:11px;font-weight:700;padding:3px 7px;border-radius:12px;cursor:pointer;line-height:1}
 /* 1RM hint */
 .orm-hint{font-size:10px;color:rgba(240,236,228,.28);line-height:1;margin-top:2px;text-align:center;min-height:12px}
 /* Quick adjust bar */
@@ -480,7 +481,9 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
   <button class="undo-btn" onclick="undoDelete()">撤銷</button>
 </div>
 <div id="rest-timer" class="rt-hidden">
+  <button class="rt-adj" onclick="adjRestTimer(-15)">−15</button>
   <span>⏱</span><span id="rest-count">90</span><span style="color:rgba(240,236,228,.45);font-weight:400">s 休息中</span>
+  <button class="rt-adj" onclick="adjRestTimer(15)">+15</button>
   <button class="rt-stop" onclick="stopRestTimer()">×</button>
 </div>
 
@@ -721,6 +724,16 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <div style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:14px">這次表現 vs 下次同課表的建議調整</div>
     <div id="session-summary-body"></div>
     <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="closeSessionSummary()">知道了</button>
+  </div>
+</div>
+
+<!-- 單一動作歷史紀錄 bottom sheet（訓練到一半想看不只上次的紀錄） -->
+<div class="create-menu-overlay" id="exercise-history-overlay" hidden onclick="if(event.target===this)closeExerciseHistory()">
+  <div class="create-menu-sheet">
+    <div id="exercise-history-title" style="font-size:18px;font-weight:800;color:#f0ece4;margin-bottom:4px">動作歷史紀錄</div>
+    <div style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:14px">由新到舊，全部紀錄</div>
+    <div id="exercise-history-body" style="max-height:60vh;overflow-y:auto"></div>
+    <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="closeExerciseHistory()">關閉</button>
   </div>
 </div>
 
@@ -2042,6 +2055,7 @@ function addExercise(){
           oninput="filterExDd(this,'${id}')" onfocus="showExDd(this,'${id}')" onblur="hideExDd('${id}',200)">
         <div class="ex-dropdown" id="dd-${id}" hidden></div>
       </div>
+      <button class="btn-rm" style="font-size:15px" onclick="openExerciseHistory('${id}')" title="查看這個動作的全部歷史紀錄">📜</button>
       <button class="btn-rm" onclick="rmExBlock('${id}')">✕</button>
     </div>
     <div id="lp-${id}" class="last-perf" hidden></div>
@@ -3676,6 +3690,21 @@ function recentRecordsOf(name,n){
   return out;
 }
 function lastRecordOf(name){return recentRecordsOf(name,1)[0]||null;}
+// 訓練到一半想看某個動作不只上次、而是全部的歷史紀錄（2026-09-17新增）
+function openExerciseHistory(exId){
+  const name=document.getElementById(exId)?.querySelector('.ex-name-input')?.value.trim();
+  if(!name){showToast('請先選擇動作');return;}
+  const all=recentRecordsOf(name,9999);
+  document.getElementById('exercise-history-title').textContent=name+' 歷史紀錄';
+  const body=document.getElementById('exercise-history-body');
+  body.innerHTML=all.length?all.map(r=>`
+    <div style="padding:10px 0;border-top:1px solid rgba(240,236,228,.08)">
+      <div style="font-size:12px;color:rgba(240,236,228,.4);margin-bottom:3px">${fmtDate(r.date)}</div>
+      <div style="font-size:13px;color:#f0ece4">${fmtSets(r.sets)}</div>
+    </div>`).join(''):'<div style="padding:20px 0;text-align:center;color:rgba(240,236,228,.3);font-size:13px">還沒有這個動作的紀錄</div>';
+  showSheet('exercise-history-overlay');
+}
+function closeExerciseHistory(){hideSheet('exercise-history-overlay');}
 // 回傳 {w, r, rpe, note, last}：w/r/rpe 是這次的固定處方（開課表直接預填），last 是上次紀錄
 function computeCoachSuggestion(exDef){
   const last=lastRecordOf(exDef.name);
@@ -4113,26 +4142,50 @@ function upd1rm(row){
 }
 
 // ── 組間休息計時器 ──
-let _restTimer=null,_restSec=90;
+// 原本用setInterval每次-1算秒數，切到別的App背景執行時瀏覽器會節流計時器，
+// tick次數不夠、秒數就會跟手機的真實時鐘對不起來（2026-09-17發現）；
+// 改成記錄「結束的絕對時間點」，每次tick都用當下時間反推剩餘秒數，不管中間tick有沒有被節流，
+// 只要能tick到就會自動校正回正確值；切回前景時(visibilitychange)也強制立刻重算一次，不用等下個tick
+const REST_SEC_KEY='bulk_rest_sec';
+function getDefaultRestSec(){return parseInt(localStorage.getItem(REST_SEC_KEY))||90;}
+function setDefaultRestSec(sec){localStorage.setItem(REST_SEC_KEY,sec);}
+let _restTimer=null,_restEndAt=null;
 function startRestTimer(){
-  stopRestTimer();_restSec=90;
+  stopRestTimer();
+  _restEndAt=Date.now()+getDefaultRestSec()*1000;
   const el=document.getElementById('rest-timer');
+  el.classList.remove('rt-hidden');
+  tickRestTimer();
+  _restTimer=setInterval(tickRestTimer,1000);
+}
+function tickRestTimer(){
+  if(_restEndAt===null)return;
+  const remain=Math.round((_restEndAt-Date.now())/1000);
   const cnt=document.getElementById('rest-count');
-  el.classList.remove('rt-hidden');cnt.textContent=_restSec;
-  _restTimer=setInterval(()=>{
-    _restSec--;cnt.textContent=_restSec;
-    if(_restSec<=0){
-      stopRestTimer();showToast('💪 休息結束，繼續下一組！');
-      navigator.vibrate&&navigator.vibrate([200,100,200]);
-      if(Notification.permission==='granted'){try{new Notification('⏱ 休息結束！',{body:'準備下一組 💪',icon:'/favicon.ico',silent:false});}catch(e){}}
-    }
-  },1000);
+  if(cnt)cnt.textContent=Math.max(remain,0);
+  if(remain<=0){
+    stopRestTimer();showToast('💪 休息結束，繼續下一組！');
+    navigator.vibrate&&navigator.vibrate([200,100,200]);
+    if(Notification.permission==='granted'){try{new Notification('⏱ 休息結束！',{body:'準備下一組 💪',icon:'/favicon.ico',silent:false});}catch(e){}}
+  }
+}
+// 中途調整這次的休息時間（+15/-15）：這次倒數立刻跟著變，同時記成下次預設值，
+// 不用每組休息都重複調整同一個方向（例如覺得90s對現在的重量都太短，調過一次之後每組自動套用）
+function adjRestTimer(delta){
+  if(_restEndAt===null)return;
+  _restEndAt+=delta*1000;
+  const remain=Math.max(15,Math.round((_restEndAt-Date.now())/1000));
+  setDefaultRestSec(remain);
+  tickRestTimer();
 }
 function stopRestTimer(){
   if(_restTimer){clearInterval(_restTimer);_restTimer=null;}
+  _restEndAt=null;
   const el=document.getElementById('rest-timer');
   if(el)el.classList.add('rt-hidden');
 }
+// App從背景切回前景時，setInterval可能已經被節流很久沒跑，立刻重算一次不用等下個tick
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&_restEndAt!==null)tickRestTimer();});
 
 // ── 快速調整全組重量/次數 ──
 function adjAllSets(exId,field,delta){
