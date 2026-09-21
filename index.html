@@ -92,7 +92,8 @@ textarea.form-input{resize:none}
 .sets-tbl th{font-size:11px;color:var(--muted);text-align:center;padding:0 3px 7px;font-weight:500}
 .sets-tbl th:first-child{text-align:left;width:22px}
 .set-row td{padding:3px 3px}
-.set-n{font-size:12px;color:var(--muted);text-align:center;padding-top:10px}
+.set-n{font-size:12px;color:var(--muted);text-align:center;padding-top:10px;cursor:pointer;user-select:none}
+.set-n.is-drop{color:#f59e0b;font-weight:800}
 .set-inp{width:100%;padding:8px 6px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;text-align:center;outline:none;-webkit-appearance:none;font-family:inherit}
 .set-inp:focus{border-color:var(--p)}
 
@@ -1935,7 +1936,8 @@ function saveDraft(){
       w:row.querySelector('[data-f=w]').value,
       r:row.querySelector('[data-f=r]').value,
       rpe:row.querySelector('[data-f=rpe]').value,
-      done:row.classList.contains('set-done')
+      done:row.classList.contains('set-done'),
+      drop:row.querySelector('.set-n')?.classList.contains('is-drop')||false
     }))
   }));
   localStorage.setItem(DRAFT_KEY,JSON.stringify({date,note,exercises}));
@@ -1979,6 +1981,7 @@ function restoreDraft(draft){
       row.querySelector('[data-f=r]').value=s.r||'';
       row.querySelector('[data-f=rpe]').value=s.rpe||'';
       if(s.done){row.classList.add('set-done');const b=row.querySelector('.check-btn');if(b){b.textContent='✓';b.classList.add('done');}}
+      if(s.drop){const cell=row.querySelector('.set-n');if(cell){cell.classList.add('is-drop');cell.textContent='↓'+(i+1);}}
     });
   });
 }
@@ -2074,6 +2077,17 @@ function addExercise(){
   document.getElementById('ex-container').appendChild(div);
   addSet(id);
 }
+// 組數欄可以點擊標記「遞減組」（同一動作第一組最重、後面組數依序減輕的訓練方式），
+// 標記純粹是視覺+紀錄用途，不影響存檔外觀以外的計算——加重建議本來就是抓「頂重量那組」，
+// 遞減組因為重量比較輕本來就不會被算進去，這裡標記是為了歷史紀錄看得出來這是刻意減輕、不是沒力
+function setNumCellHtml(n,isDrop){return`<td class="set-n${isDrop?' is-drop':''}" onclick="toggleDropSet(this)">${isDrop?'↓':''}${n}</td>`;}
+function toggleDropSet(td){
+  const isDrop=td.classList.toggle('is-drop');
+  const tr=td.closest('tr'),tb=tr.closest('tbody');
+  const n=[...tb.rows].indexOf(tr)+1;
+  td.textContent=(isDrop?'↓':'')+n;
+  scheduleDraftSave();
+}
 function addSet(exId){
   const tb=document.getElementById('tb-'+exId);if(!tb)return;
   const n=tb.rows.length+1;
@@ -2081,7 +2095,7 @@ function addSet(exId){
   if(tb.rows.length){const prev=tb.rows[tb.rows.length-1];pw=prev.querySelector('[data-f=w]').value;pr=prev.querySelector('[data-f=r]').value;}
   const tr=document.createElement('tr');tr.className='set-row';
   tr.innerHTML=`
-    <td class="set-n">${n}</td>
+    ${setNumCellHtml(n,false)}
     <td><input class="set-inp" type="text" inputmode="decimal" placeholder="—" data-f="w" value="${pw}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))">
         <div class="orm-hint" data-1rm></div></td>
     <td><input class="set-inp" type="text" inputmode="numeric" placeholder="—" data-f="r" value="${pr}" oninput="scheduleDraftSave();upd1rm(this.closest('tr'))"></td>
@@ -2094,7 +2108,10 @@ function rmSet(btn){
   const tb=btn.closest('tbody');
   if(tb.rows.length<=1){showToast('至少保留一組');return;}
   btn.closest('tr').remove();
-  [...tb.rows].forEach((r,i)=>r.querySelector('.set-n').textContent=i+1);
+  [...tb.rows].forEach((r,i)=>{
+    const cell=r.querySelector('.set-n');
+    cell.textContent=(cell.classList.contains('is-drop')?'↓':'')+(i+1);
+  });
 }
 function onNameChange(inp,exId){
   const name=inp.value.trim();if(!name)return;
@@ -2177,11 +2194,13 @@ function saveWorkout(){
       let w=wRaw!==''?parseFloat(wRaw):null;
       if(w!==null&&assisted)w=-Math.abs(w);
       const rpeRaw=row.querySelector('[data-f=rpe]').value;
+      const isDrop=row.querySelector('.set-n')?.classList.contains('is-drop')||false;
       return{
         w,
         r:row.querySelector('[data-f=r]').value!==''?parseInt(row.querySelector('[data-f=r]').value):null,
         rpe:rpeRaw!==''?parseFloat(rpeRaw):null,
-        note:''
+        note:'',
+        drop:isDrop
       };
     }).filter(s=>s.w!==null||s.r!==null);
     if(sets.length){
@@ -3673,6 +3692,7 @@ function catColor(cat){return cat==='主項目'?'#f59e0b':cat==='核心'?'#4ade8
 function fmtSets(sets){
   return sets.map(s=>{
     let t='';
+    if(s.drop)t+='↓';
     if(s.w!=null)t+=(s.w<0?'輔'+Math.abs(s.w):s.w);
     if(s.r)t+='×'+s.r;
     if(s.rpe)t+=' R'+s.rpe;
@@ -3719,7 +3739,9 @@ function computeCoachSuggestion(exDef){
   if(!last){
     return{w:null,r:exDef.rep,rpe:exDef.rpe,note:'第一次嘗試，現場抓重量',last:null,isFirst:true};
   }
-  const sets=last.sets.filter(s=>s.w!==null&&s.w!==undefined);
+  // 遞減組（同動作刻意由重到輕）不能拿來當加重判斷依據，這種組本來就比工作重量輕，
+  // 混進去判斷「有沒有達標」會失真——先排除掉再抓頂重量
+  const sets=last.sets.filter(s=>s.w!==null&&s.w!==undefined&&!s.drop);
   if(!sets.length)return{w:null,r:exDef.rep,rpe:exDef.rpe,note:'上次沒有重量紀錄，現場評估',last};
   const baseW0=Math.max(...sets.map(s=>s.w));
   const topSets=sets.filter(s=>s.w===baseW0);
@@ -3792,7 +3814,7 @@ function isExerciseStuck(exDef){
   const recent=recentRecordsOf(exDef.name,3);
   if(recent.length<3)return false;
   const perfOf=r=>{
-    const sets=(r.sets||[]).filter(s=>s.w!=null);
+    const sets=(r.sets||[]).filter(s=>s.w!=null&&!s.drop);
     if(!sets.length)return null;
     const maxW=Math.max(...sets.map(s=>s.w));
     const minReps=Math.min(...sets.filter(s=>s.w===maxW).map(s=>s.r||0));
