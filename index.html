@@ -627,6 +627,14 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.8) opacity(.5
     <div id="draft-autosave-status" class="draft-bar" hidden><span id="draft-autosave-status-text"></span></div>
     <label class="form-label">訓練日期</label>
     <input type="date" class="form-input" id="new-date" style="margin-bottom:16px" onchange="scheduleDraftSave()">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:10px 12px;background:#141414;border-radius:10px">
+      <span style="font-size:13px;color:rgba(240,236,228,.6)">⏱ 組間休息時間（打勾就用這個）</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="rt-adj" onclick="adjDefaultRestSec(-15)">−15</button>
+        <span id="default-rest-display" style="font-size:14px;font-weight:700;color:#f0ece4;min-width:34px;text-align:center">90s</span>
+        <button class="rt-adj" onclick="adjDefaultRestSec(15)">+15</button>
+      </div>
+    </div>
     <label class="form-label">動作</label>
     <div id="ex-container"></div>
     <button class="btn btn-ghost btn-full" onclick="addExercise()">
@@ -2029,6 +2037,7 @@ function toggleSetDone(btn){
 }
 function initAdd(){
   const summaryNote=document.getElementById('coach-summary-note');if(summaryNote){summaryNote.hidden=true;summaryNote.innerHTML='';}
+  renderDefaultRestDisplay();
   const raw=localStorage.getItem(DRAFT_KEY);
   if(raw){
     const draft=JSON.parse(raw);
@@ -4171,6 +4180,18 @@ function upd1rm(row){
 const REST_SEC_KEY='bulk_rest_sec';
 function getDefaultRestSec(){return parseInt(localStorage.getItem(REST_SEC_KEY))||90;}
 function setDefaultRestSec(sec){localStorage.setItem(REST_SEC_KEY,sec);}
+// 新增訓練頁上方的休息時間設定——2026-09-25前是只有計時器已經跑起來才能用+15/-15調整，
+// Kevin反映想「先設定好，打勾完成時才觸發」，不用先開始休息才能改，所以加這個獨立的設定列，
+// 跟後面倒數計時共用同一個bulk_rest_sec，不用兩套邏輯
+function renderDefaultRestDisplay(){
+  const el=document.getElementById('default-rest-display');
+  if(el)el.textContent=getDefaultRestSec()+'s';
+}
+function adjDefaultRestSec(delta){
+  const next=Math.max(15,getDefaultRestSec()+delta);
+  setDefaultRestSec(next);
+  renderDefaultRestDisplay();
+}
 let _restTimer=null,_restEndAt=null;
 function startRestTimer(){
   stopRestTimer();
